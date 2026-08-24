@@ -1,0 +1,69 @@
+cmake_minimum_required(VERSION 3.20)
+
+project(
+    PerfLens
+    VERSION 0.1.0
+    DESCRIPTION "Controlled Linux performance regression measurements"
+    LANGUAGES CXX
+)
+
+include(FetchContent)
+find_package(Threads REQUIRED)
+
+set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
+
+if(NOT CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    message(FATAL_ERROR "PerfLens currently supports Linux only")
+endif()
+
+FetchContent_Declare(
+    nlohmann_json
+    GIT_REPOSITORY https://github.com/nlohmann/json.git
+    GIT_TAG v3.11.3
+    GIT_SHALLOW TRUE
+)
+
+FetchContent_MakeAvailable(nlohmann_json)
+
+add_library(perflens_core
+    src/model.cpp
+    src/process/process_runner.cpp
+)
+
+target_include_directories(perflens_core PUBLIC include)
+target_link_libraries(perflens_core PUBLIC nlohmann_json::nlohmann_json)
+target_compile_options(perflens_core PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wshadow)
+
+add_executable(perflens src/cli/main.cpp)
+target_link_libraries(perflens PRIVATE perflens_core)
+target_compile_options(perflens PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wshadow)
+
+install(TARGETS perflens RUNTIME DESTINATION bin)
+
+add_executable(cpu_work examples/cpu_work.cpp)
+target_compile_options(cpu_work PRIVATE -O2 -g -Wall -Wextra -Wpedantic)
+
+include(CTest)
+
+if(BUILD_TESTING)
+    FetchContent_Declare(
+        Catch2
+        GIT_REPOSITORY https://github.com/catchorg/Catch2.git
+        GIT_TAG v3.8.1
+        GIT_SHALLOW TRUE
+    )
+    FetchContent_MakeAvailable(Catch2)
+
+    add_executable(perflens_tests
+        tests/model_test.cpp
+        tests/process_runner_test.cpp
+    )
+    target_link_libraries(perflens_tests PRIVATE perflens_core Catch2::Catch2WithMain)
+    target_compile_options(perflens_tests PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wshadow)
+
+    list(APPEND CMAKE_MODULE_PATH ${catch2_SOURCE_DIR}/extras)
+    include(Catch)
+    catch_discover_tests(perflens_tests)
+endif()
