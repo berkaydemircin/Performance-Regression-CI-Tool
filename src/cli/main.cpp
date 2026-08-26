@@ -1,18 +1,189 @@
+#include "perflens/analysis.hpp"
+#include "perflens/benchmark_runner.hpp"
 #include "perflens/process_runner.hpp"
-#include <iostream>
+#include "perflens/report.hpp"
+
+#include <CLI/CLI.hpp>
 #include <nlohmann/json.hpp>
+
+#include <chrono>
+#include <cmath>
+#include <csignal>
+#include <cstdint>
+#include <exception>
+#include <fstream>
+#include <iostream>
+#include <limits>
+#include <optional>
+#include <stdexcept>
 #include <string>
+#include <string_view>
+#include <utility>
 #include <vector>
 
-int main(int argc, char** argv) {
-    if (argc < 2) {
-        std::cerr << "usage: perflens PROGRAM [ARG ...]\n";
-        return 2;
+namespace {
+
+std::chrono::nanoseconds parseDuration(const std::string_view text, const bool allowZero = false) {
+    if (text.empty()) {
+        throw std::invalid_argument("duration must not be empty");
     }
+    std::size_t parsed = 0;
+    const double value = std::stod(std::string{text}, &parsed);
+    if (!std::isfinite(value) || value < 0.0 || (!allowZero && value == 0.0)) {
+        throw std::invalid_argument(allowZero ? "duration must be finite and nonnegative"
+                                              : "duration must be positive and finite");
+    }
+
+    const std::string_view unit = text.substr(parsed);
+    double nanoseconds = 0.0;
+    if (unit == "ns") {
+        nanoseconds = value;
+    } else if (unit == "us") {
+        nanoseconds = value * 1'000.0;
+    } else if (unit == "ms") {
+        nanoseconds = value * 1'000'000.0;
+    } else if (unit == "s") {
+        nanoseconds = value * 1'000'000'000.0;
+    } else if (unit == "m") {
+        nanoseconds = value * 60'000'000'000.0;
+    } else {
+        throw std::invalid_argument("duration unit must be ns, us, ms, s, or m");
+    }
+    if (nanoseconds >= static_cast<double>(std::numeric_limits<std::int64_t>::max())) {
+        throw std::out_of_range("duration is too large");
+    }
+    return std::chrono::nanoseconds{static_cast<std::int64_t>(nanoseconds)};
+}
+
+std::vector<std::string> shellCommand(const std::string& command) {
+    if (command.empty()) {
+        throw std::invalid_argument("command must not be empty");
+    }
+    return {"/bin/sh", "-c", command};
+}
+
+template <typename T> void writeJson(const std::string& path, const T& result) {
+    std::ofstream output{path};
+    if (!output) {
+        throw std::runtime_error("could not open JSON output: " + path);
+    }
+    output << nlohmann::json(result).dump(2) << '\n';
+    if (!output) {
+        throw std::runtime_error("could not write JSON output: " + path);
+    }
+}
+
+perflens::RunOptions makeRunOptions(const std::optional<std::string>& timeout,
+                                    const std::string& gracePeriod,
+                                    const std::optional<unsigned int> cpu) {
+    perflens::RunOptions options;
+    if (timeout) {
+        options.timeout = parseDuration(*timeout);
+    }
+    options.terminationGrace =
+        std::chrono::duration_cast<std::chrono::milliseconds>(parseDuration(gracePeriod, true));
+    options.cpu = cpu;
+    return options;
+}
+
+void overrideThreshold(std::optional<double>& target, const std::optional<double>& value, const char* name) {
+    if (!value) {
+        return;
+    }
+    if (!std::isfinite(*value) || *value < 0.0) {
+        throw std::invalid_argument(std::string{name} + " must be finite and nonnegative");
+    }
+    target = value;
+}
+
+}
+
+int main(const int argc, char** argv) {
+    CLI::App app{"Controlled Linux performance regression measurements", "perflens"};
+    app.require_subcommand(1);
+    app.set_version_flag("--version", "PerfLens 0.1.0");
+
+    std::vector<std::string> runCommand;
+    std::size_t runRepeat = 1;
+    std::size_t runWarmup = 0;
+    std::optional<unsigned int> runCpu;
+    std::optional<std::string> runTimeout;
+    std::string runGrace = "500ms";
+    std::optional<std::string> runJson;
+
+    CLI::App* run = app.add_subcommand("run", "Execute a terminating target and report resource usage");
+    run->positionals_at_end();
+    run->add_option("command", runCommand, "Target command and arguments")->required()->expected(-1);
+    run->add_option("--repeat", runRepeat, "Measured executions")->check(CLI::PositiveNumber);
+    run->add_option("--warmup", runWarmup, "Discarded warmup executions");
+    run->add_option("--cpu", runCpu, "CPU to pin the target to");
+    run->add_option("--timeout", runTimeout, "Stop each target after this duration");
+    run->add_option("--grace-period", runGrace, "Wait before sending SIGKILL");
+    run->add_option("--json", runJson, "Write the benchmark result as JSON");
+
+    std::string baselineCommand;
+    std::string candidateCommand;
+    std::size_t compareRepeat = 8;
+    std::size_t compareWarmup = 2;
+    std::optional<std::uint64_t> compareSeed;
+    std::optional<unsigned int> compareCpu;
+    std::optional<std::string> compareTimeout;
+    std::string compareGrace = "500ms";
+    std::optional<std::string> compareJson;
+    std::optional<std::string> thresholdConfig;
+    std::optional<double> maxRuntimeRegression;
+    std::optional<double> maxRssRegression;
+
+    CLI::App* compare = app.add_subcommand("compare", "Run a balanced baseline and candidate comparison");
+    compare->add_option("--baseline", baselineCommand, "Baseline command line")->required();
+    compare->add_option("--candidate", candidateCommand, "Candidate command line")->required();
+    compare->add_option("--repeat", compareRepeat, "Measured executions per variant")
+        ->check(CLI::PositiveNumber);
+    compare->add_option("--warmup", compareWarmup, "Discarded executions per variant");
+    compare->add_option("--seed", compareSeed, "Reproducible balanced-order seed");
+    compare->add_option("--cpu", compareCpu, "CPU to pin each target to");
+    compare->add_option("--timeout", compareTimeout, "Stop each run after this duration");
+    compare->add_option("--grace-period", compareGrace, "Wait before sending SIGKILL");
+    compare->add_option("--json", compareJson, "Write the comparison result as JSON");
+    compare->add_option("--config", thresholdConfig, "JSON threshold configuration");
+    compare->add_option(
+        "--max-runtime-regression", maxRuntimeRegression, "Maximum runtime increase in percent");
+    compare->add_option("--max-rss-regression", maxRssRegression, "Maximum RSS increase in percent");
+
+    CLI11_PARSE(app, argc, argv);
+
     try {
-        const auto outcome = perflens::ProcessRunner{}.run(std::vector<std::string>{argv + 1, argv + argc});
-        std::cout << nlohmann::json(outcome.result).dump(2) << '\n';
-        return outcome.succeeded() ? 0 : 2;
+        if (*run) {
+            const perflens::RunOptions options = makeRunOptions(runTimeout, runGrace, runCpu);
+            const perflens::BenchmarkResult result =
+                perflens::runBenchmark(runCommand, {runRepeat, runWarmup, std::nullopt}, options);
+            perflens::printBenchmarkReport(std::cout, result);
+            if (runJson) {
+                writeJson(*runJson, result);
+            }
+            return 0;
+        }
+
+        perflens::RunOptions options = makeRunOptions(compareTimeout, compareGrace, compareCpu);
+        perflens::Thresholds thresholds =
+            thresholdConfig ? perflens::loadThresholds(*thresholdConfig) : perflens::Thresholds{};
+        overrideThreshold(thresholds.maxRuntimeRegressionPercent, maxRuntimeRegression, "runtime threshold");
+        overrideThreshold(thresholds.maxRssRegressionPercent, maxRssRegression, "RSS threshold");
+
+        const perflens::ComparisonResult result =
+            perflens::runComparison(shellCommand(baselineCommand),
+                                    shellCommand(candidateCommand),
+                                    {compareRepeat, compareWarmup, compareSeed},
+                                    options,
+                                    thresholds);
+        perflens::printComparisonReport(std::cout, result);
+        if (compareJson) {
+            writeJson(*compareJson, result);
+        }
+        return result.violations.empty() ? 0 : 1;
+    } catch (const perflens::BenchmarkError& error) {
+        std::cerr << "perflens: " << error.what() << '\n';
+        return error.exitCode();
     } catch (const std::exception& error) {
         std::cerr << "perflens: " << error.what() << '\n';
         return 2;

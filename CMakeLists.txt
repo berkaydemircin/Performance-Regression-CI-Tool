@@ -19,17 +19,28 @@ if(NOT CMAKE_SYSTEM_NAME STREQUAL "Linux")
 endif()
 
 FetchContent_Declare(
+    cli11
+    GIT_REPOSITORY https://github.com/CLIUtils/CLI11.git
+    GIT_TAG v2.5.0
+    GIT_SHALLOW TRUE
+)
+
+FetchContent_Declare(
     nlohmann_json
     GIT_REPOSITORY https://github.com/nlohmann/json.git
     GIT_TAG v3.11.3
     GIT_SHALLOW TRUE
 )
 
-FetchContent_MakeAvailable(nlohmann_json)
+FetchContent_MakeAvailable(cli11 nlohmann_json)
 
 add_library(perflens_core
+    src/analysis/benchmark_runner.cpp
+    src/analysis/comparison.cpp
+    src/analysis/statistics.cpp
     src/model.cpp
     src/process/process_runner.cpp
+    src/report/terminal_report.cpp
 )
 
 target_include_directories(perflens_core PUBLIC include)
@@ -37,7 +48,7 @@ target_link_libraries(perflens_core PUBLIC nlohmann_json::nlohmann_json)
 target_compile_options(perflens_core PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wshadow)
 
 add_executable(perflens src/cli/main.cpp)
-target_link_libraries(perflens PRIVATE perflens_core)
+target_link_libraries(perflens PRIVATE perflens_core CLI11::CLI11)
 target_compile_options(perflens PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wshadow)
 
 install(TARGETS perflens RUNTIME DESTINATION bin)
@@ -57,6 +68,7 @@ if(BUILD_TESTING)
     FetchContent_MakeAvailable(Catch2)
 
     add_executable(perflens_tests
+        tests/analysis_test.cpp
         tests/model_test.cpp
         tests/process_runner_test.cpp
     )

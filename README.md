@@ -8,4 +8,4 @@ cmake --build build -j4
 ctest --test-dir build --output-on-failure
 ```
 
-Run a program with `./build/perflens ./build/cpu_work`.
+Use `./build/perflens run --help` or `./build/perflens compare --help` for options.
