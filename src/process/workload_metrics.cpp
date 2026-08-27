@@ -22,11 +22,12 @@ void validateNumber(const std::optional<double>& value, const char* name) {
 
 std::optional<ApplicationMetrics> loadApplicationMetrics(const std::string& path) {
     std::error_code fileError;
-    if (!std::filesystem::exists(path, fileError)) {
-        return std::nullopt;
-    }
+    const bool exists = std::filesystem::exists(path, fileError);
     if (fileError) {
         throw std::runtime_error("could not inspect workload metrics file: " + fileError.message());
+    }
+    if (!exists) {
+        return std::nullopt;
     }
 
     std::ifstream input{path};
@@ -34,6 +35,10 @@ std::optional<ApplicationMetrics> loadApplicationMetrics(const std::string& path
         throw std::runtime_error("could not open workload metrics file");
     }
     const nlohmann::json json = nlohmann::json::parse(input);
+    if (json.contains("operations") &&
+        (!json.at("operations").is_number_unsigned() || json.at("operations").get<std::uint64_t>() == 0)) {
+        throw std::invalid_argument("workload operations must be a positive integer");
+    }
     ApplicationMetrics metrics = json.get<ApplicationMetrics>();
 
     if (metrics.operations && *metrics.operations == 0) {
@@ -52,6 +57,9 @@ std::optional<ApplicationMetrics> loadApplicationMetrics(const std::string& path
     }
     if (metrics.latency.p95Us && metrics.latency.p99Us && *metrics.latency.p95Us > *metrics.latency.p99Us) {
         throw std::invalid_argument("workload p95 latency exceeds p99 latency");
+    }
+    if (metrics.latency.p50Us && metrics.latency.p99Us && *metrics.latency.p50Us > *metrics.latency.p99Us) {
+        throw std::invalid_argument("workload p50 latency exceeds p99 latency");
     }
     return metrics;
 }

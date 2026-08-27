@@ -52,3 +52,21 @@ TEST_CASE("thresholds use metric direction") {
     CHECK(violations[0].metric == "runtime");
     CHECK(violations[1].metric == "throughput");
 }
+
+TEST_CASE("configured budgets reject missing or undefined metrics") {
+    perflens::Thresholds thresholds;
+    thresholds.maxP99LatencyRegressionPercent = 5;
+    CHECK_THROWS_AS(perflens::evaluateThresholds({}, thresholds), std::invalid_argument);
+    const std::vector<perflens::MetricComparison> metrics{
+        {"p99_latency", "p99 latency", "us", 0, 1, std::nullopt, false},
+    };
+    CHECK_THROWS_AS(perflens::evaluateThresholds(metrics, thresholds), std::invalid_argument);
+}
+
+TEST_CASE("partial application measurements are not summarized as complete") {
+    perflens::RunResult measured;
+    measured.application = perflens::ApplicationMetrics{};
+    measured.application->throughput = 100;
+    const auto summary = perflens::summarizeRuns({measured, perflens::RunResult{}});
+    CHECK_FALSE(summary.throughput);
+}

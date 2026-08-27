@@ -16,4 +16,4 @@ PerfLens sets `PERFLENS_METRICS_FILE` for each run. Write your results to that p
 
 Throughput is in operations per second and latency is in microseconds. You can omit fields, but the file needs at least one measurement.
 
-Operation counts must be greater than zero. Other values must be finite and nonnegative, and latency percentiles must be in order. Invalid data makes the run fail.
+Operation counts must be positive integers. Other values must be finite and nonnegative, and latency percentiles must be in order. Invalid data makes the run fail.

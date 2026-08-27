@@ -55,3 +55,17 @@ TEST_CASE("workload latency percentiles must be ordered") {
 
     CHECK_THROWS_AS(perflens::loadApplicationMetrics(file.path), std::invalid_argument);
 }
+
+TEST_CASE("operation counts reject negative and fractional numbers") {
+    TemporaryFile file;
+    for (const std::string value : {"-1", "1.5", "0"}) {
+        std::ofstream{file.path} << "{\"operations\":" << value << "}";
+        CHECK_THROWS_AS(perflens::loadApplicationMetrics(file.path), std::invalid_argument);
+    }
+}
+
+TEST_CASE("p50 cannot exceed p99 when p95 is omitted") {
+    TemporaryFile file;
+    std::ofstream{file.path} << R"({"latency":{"p50_us":20,"p99_us":10}})";
+    CHECK_THROWS_AS(perflens::loadApplicationMetrics(file.path), std::invalid_argument);
+}

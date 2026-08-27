@@ -124,7 +124,21 @@ std::vector<MetricComparison> compareMetrics(const BenchmarkSummary& baseline,
 std::vector<ThresholdViolation> evaluateThresholds(const std::vector<MetricComparison>& metrics,
                                                    const Thresholds& thresholds) {
     std::vector<ThresholdViolation> violations;
-
+    for (const char* key : {"runtime", "p99_latency", "throughput", "cpu_time_per_operation", "max_rss"}) {
+        const auto limit = thresholdFor(thresholds, key);
+        if (!limit) {
+            continue;
+        }
+        if (!std::isfinite(*limit) || *limit < 0.0) {
+            throw std::invalid_argument("threshold must be finite and nonnegative");
+        }
+        const auto found = std::find_if(metrics.begin(),
+                                        metrics.end(),
+                                        [key](const MetricComparison& metric) { return metric.key == key; });
+        if (found == metrics.end() || !found->changePercent || !std::isfinite(*found->changePercent)) {
+            throw std::invalid_argument(std::string{"cannot evaluate configured threshold: "} + key);
+        }
+    }
     for (const MetricComparison& metric : metrics) {
         const std::optional<double> limit = thresholdFor(thresholds, metric.key);
         if (!limit) {
@@ -148,6 +162,16 @@ Thresholds loadThresholds(const std::string& path) {
     }
     const nlohmann::json document = nlohmann::json::parse(input);
     const nlohmann::json& json = document.contains("thresholds") ? document.at("thresholds") : document;
+    if (!json.is_object()) {
+        throw std::invalid_argument("threshold configuration must be an object");
+    }
+    for (const auto& [key, value] : json.items()) {
+        static_cast<void>(value);
+        if (key != "runtime_pct" && key != "p99_latency_pct" && key != "throughput_pct" &&
+            key != "cpu_time_pct" && key != "max_rss_pct") {
+            throw std::invalid_argument("unknown threshold: " + key);
+        }
+    }
 
     Thresholds thresholds;
     readThreshold(json, "runtime_pct", thresholds.maxRuntimeRegressionPercent);

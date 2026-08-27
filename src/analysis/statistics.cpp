@@ -27,9 +27,10 @@ std::optional<Distribution> collectOptional(const std::vector<RunResult>& runs, 
     values.reserve(runs.size());
     for (const RunResult& run : runs) {
         const std::optional<double> value = extractor(run);
-        if (value) {
-            values.push_back(*value);
+        if (!value) {
+            return std::nullopt;
         }
+        values.push_back(*value);
     }
     return values.empty() ? std::nullopt : std::optional<Distribution>{summarize(values)};
 }
