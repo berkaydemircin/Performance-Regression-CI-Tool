@@ -40,6 +40,7 @@ add_library(perflens_core
     src/analysis/statistics.cpp
     src/model.cpp
     src/process/process_runner.cpp
+    src/process/workload_metrics.cpp
     src/report/terminal_report.cpp
 )
 
@@ -71,6 +72,7 @@ if(BUILD_TESTING)
         tests/analysis_test.cpp
         tests/model_test.cpp
         tests/process_runner_test.cpp
+        tests/workload_metrics_test.cpp
     )
     target_link_libraries(perflens_tests PRIVATE perflens_core Catch2::Catch2WithMain)
     target_compile_options(perflens_tests PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wshadow)

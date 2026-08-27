@@ -54,12 +54,40 @@ void from_json(const nlohmann::json& json, ProcessMetrics& value) {
     json.at("involuntary_context_switches").get_to(value.involuntaryContextSwitches);
 }
 
+void to_json(nlohmann::json& json, const LatencyMetrics& value) {
+    json = nlohmann::json::object();
+    putOptional(json, "p50_us", value.p50Us);
+    putOptional(json, "p95_us", value.p95Us);
+    putOptional(json, "p99_us", value.p99Us);
+}
+
+void from_json(const nlohmann::json& json, LatencyMetrics& value) {
+    getOptional(json, "p50_us", value.p50Us);
+    getOptional(json, "p95_us", value.p95Us);
+    getOptional(json, "p99_us", value.p99Us);
+}
+
+void to_json(nlohmann::json& json, const ApplicationMetrics& value) {
+    json = nlohmann::json{{"latency", value.latency}};
+    putOptional(json, "operations", value.operations);
+    putOptional(json, "throughput", value.throughput);
+}
+
+void from_json(const nlohmann::json& json, ApplicationMetrics& value) {
+    getOptional(json, "operations", value.operations);
+    getOptional(json, "throughput", value.throughput);
+    const auto latency = json.find("latency");
+    value.latency = latency == json.end() ? LatencyMetrics{} : latency->get<LatencyMetrics>();
+}
+
 void to_json(nlohmann::json& json, const RunResult& value) {
     json = nlohmann::json{{"process", value.process}};
+    putOptional(json, "application", value.application);
 }
 
 void from_json(const nlohmann::json& json, RunResult& value) {
     json.at("process").get_to(value.process);
+    getOptional(json, "application", value.application);
 }
 
 void to_json(nlohmann::json& json, const Distribution& value) {
@@ -89,6 +117,11 @@ void to_json(nlohmann::json& json, const BenchmarkSummary& value) {
                           {"max_rss_bytes", value.maxRssBytes},
                           {"voluntary_context_switches", value.voluntaryContextSwitches},
                           {"involuntary_context_switches", value.involuntaryContextSwitches}};
+    putOptional(json, "throughput", value.throughput);
+    putOptional(json, "p50_latency_us", value.p50LatencyUs);
+    putOptional(json, "p95_latency_us", value.p95LatencyUs);
+    putOptional(json, "p99_latency_us", value.p99LatencyUs);
+    putOptional(json, "cpu_time_per_operation_us", value.cpuTimePerOperationUs);
 }
 
 void from_json(const nlohmann::json& json, BenchmarkSummary& value) {
@@ -98,6 +131,11 @@ void from_json(const nlohmann::json& json, BenchmarkSummary& value) {
     json.at("max_rss_bytes").get_to(value.maxRssBytes);
     json.at("voluntary_context_switches").get_to(value.voluntaryContextSwitches);
     json.at("involuntary_context_switches").get_to(value.involuntaryContextSwitches);
+    getOptional(json, "throughput", value.throughput);
+    getOptional(json, "p50_latency_us", value.p50LatencyUs);
+    getOptional(json, "p95_latency_us", value.p95LatencyUs);
+    getOptional(json, "p99_latency_us", value.p99LatencyUs);
+    getOptional(json, "cpu_time_per_operation_us", value.cpuTimePerOperationUs);
 }
 
 void to_json(nlohmann::json& json, const BenchmarkResult& value) {

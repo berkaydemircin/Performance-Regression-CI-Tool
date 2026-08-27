@@ -1,5 +1,7 @@
 #include "perflens/process_runner.hpp"
 
+#include "perflens/workload_metrics.hpp"
+
 #include <array>
 #include <cerrno>
 #include <chrono>
@@ -132,6 +134,37 @@ class ChildGuard {
 
   private:
     pid_t child_;
+};
+
+class MetricsFile {
+  public:
+    explicit MetricsFile(const bool enabled) {
+        if (!enabled) {
+            return;
+        }
+        std::array<char, 32> pattern{};
+        std::strcpy(pattern.data(), "/tmp/perflens-metrics-XXXXXX");
+        const int descriptor = mkstemp(pattern.data());
+        if (descriptor == -1) {
+            throw std::system_error(errno, std::generic_category(), "mkstemp workload metrics");
+        }
+        close(descriptor);
+        path_ = pattern.data();
+        unlink(path_.c_str());
+    }
+
+    ~MetricsFile() {
+        if (!path_.empty()) {
+            unlink(path_.c_str());
+        }
+    }
+
+    [[nodiscard]] const std::string& path() const noexcept {
+        return path_;
+    }
+
+  private:
+    std::string path_;
 };
 
 enum class ChildStage : int {
@@ -336,6 +369,7 @@ ProcessOutcome ProcessRunner::run(const std::vector<std::string>& command, const
 
     auto startPipe = createPipe();
     auto errorPipe = createPipe();
+    MetricsFile metricsFile{options.collectApplicationMetrics};
     SignalHandlerGuard signalHandlers;
 
     const pid_t child = fork();
@@ -345,7 +379,7 @@ ProcessOutcome ProcessRunner::run(const std::vector<std::string>& command, const
     if (child == 0) {
         executeChild(command,
                      options,
-                     std::string{},
+                     metricsFile.path(),
                      startPipe[0].get(),
                      startPipe[1].get(),
                      errorPipe[0].get(),
@@ -429,6 +463,9 @@ ProcessOutcome ProcessRunner::run(const std::vector<std::string>& command, const
 
     ProcessOutcome outcome;
     outcome.result.process = makeMetrics(finishedAt - startedAt, usage);
+    if (options.collectApplicationMetrics) {
+        outcome.result.application = loadApplicationMetrics(metricsFile.path());
+    }
 
     if (interrupted) {
         outcome.reason = TerminationReason::interrupted;

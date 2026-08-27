@@ -21,6 +21,19 @@ std::vector<double> collect(const std::vector<RunResult>& runs, Extractor extrac
     return values;
 }
 
+template <typename Extractor>
+std::optional<Distribution> collectOptional(const std::vector<RunResult>& runs, Extractor extractor) {
+    std::vector<double> values;
+    values.reserve(runs.size());
+    for (const RunResult& run : runs) {
+        const std::optional<double> value = extractor(run);
+        if (value) {
+            values.push_back(*value);
+        }
+    }
+    return values.empty() ? std::nullopt : std::optional<Distribution>{summarize(values)};
+}
+
 }
 
 Distribution summarize(const std::vector<double>& values) {
@@ -72,6 +85,26 @@ BenchmarkSummary summarizeRuns(const std::vector<RunResult>& runs) {
         return static_cast<double>(run.process.involuntaryContextSwitches);
     }));
 
+    summary.throughput = collectOptional(runs, [](const RunResult& run) -> std::optional<double> {
+        return run.application ? run.application->throughput : std::nullopt;
+    });
+    summary.p50LatencyUs = collectOptional(runs, [](const RunResult& run) -> std::optional<double> {
+        return run.application ? run.application->latency.p50Us : std::nullopt;
+    });
+    summary.p95LatencyUs = collectOptional(runs, [](const RunResult& run) -> std::optional<double> {
+        return run.application ? run.application->latency.p95Us : std::nullopt;
+    });
+    summary.p99LatencyUs = collectOptional(runs, [](const RunResult& run) -> std::optional<double> {
+        return run.application ? run.application->latency.p99Us : std::nullopt;
+    });
+    summary.cpuTimePerOperationUs = collectOptional(runs, [](const RunResult& run) -> std::optional<double> {
+        if (!run.application || !run.application->operations || *run.application->operations == 0) {
+            return std::nullopt;
+        }
+        const double cpuNanoseconds =
+            static_cast<double>((run.process.userTime + run.process.systemTime).count());
+        return cpuNanoseconds / 1'000.0 / static_cast<double>(*run.application->operations);
+    });
     return summary;
 }
 

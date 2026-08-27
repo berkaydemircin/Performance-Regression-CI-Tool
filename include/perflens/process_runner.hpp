@@ -21,6 +21,7 @@ struct RunOptions {
     std::optional<std::chrono::nanoseconds> timeout;
     std::chrono::milliseconds terminationGrace{500};
     std::optional<unsigned int> cpu;
+    bool collectApplicationMetrics{true};
     std::vector<std::pair<std::string, std::string>> environment;
 };
 

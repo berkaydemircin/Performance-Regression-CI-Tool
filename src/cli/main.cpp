@@ -132,6 +132,9 @@ int main(const int argc, char** argv) {
     std::optional<std::string> compareJson;
     std::optional<std::string> thresholdConfig;
     std::optional<double> maxRuntimeRegression;
+    std::optional<double> maxP99Regression;
+    std::optional<double> maxThroughputRegression;
+    std::optional<double> maxCpuRegression;
     std::optional<double> maxRssRegression;
 
     CLI::App* compare = app.add_subcommand("compare", "Run a balanced baseline and candidate comparison");
@@ -148,6 +151,11 @@ int main(const int argc, char** argv) {
     compare->add_option("--config", thresholdConfig, "JSON threshold configuration");
     compare->add_option(
         "--max-runtime-regression", maxRuntimeRegression, "Maximum runtime increase in percent");
+    compare->add_option("--max-p99-regression", maxP99Regression, "Maximum p99 latency increase in percent");
+    compare->add_option(
+        "--max-throughput-regression", maxThroughputRegression, "Maximum throughput decrease in percent");
+    compare->add_option(
+        "--max-cpu-regression", maxCpuRegression, "Maximum CPU-per-operation increase in percent");
     compare->add_option("--max-rss-regression", maxRssRegression, "Maximum RSS increase in percent");
 
     CLI11_PARSE(app, argc, argv);
@@ -168,6 +176,10 @@ int main(const int argc, char** argv) {
         perflens::Thresholds thresholds =
             thresholdConfig ? perflens::loadThresholds(*thresholdConfig) : perflens::Thresholds{};
         overrideThreshold(thresholds.maxRuntimeRegressionPercent, maxRuntimeRegression, "runtime threshold");
+        overrideThreshold(thresholds.maxP99LatencyRegressionPercent, maxP99Regression, "p99 threshold");
+        overrideThreshold(
+            thresholds.maxThroughputRegressionPercent, maxThroughputRegression, "throughput threshold");
+        overrideThreshold(thresholds.maxCpuRegressionPercent, maxCpuRegression, "CPU threshold");
         overrideThreshold(thresholds.maxRssRegressionPercent, maxRssRegression, "RSS threshold");
 
         const perflens::ComparisonResult result =

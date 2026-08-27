@@ -37,11 +37,31 @@ void addMetric(std::vector<MetricComparison>& output,
                       higherIsBetter});
 }
 
+void addOptionalMetric(std::vector<MetricComparison>& output,
+                       const std::string& key,
+                       const std::string& label,
+                       const std::string& unit,
+                       const std::optional<Distribution>& baseline,
+                       const std::optional<Distribution>& candidate,
+                       const bool higherIsBetter) {
+    if (baseline && candidate) {
+        addMetric(output, key, label, unit, *baseline, *candidate, higherIsBetter);
+    }
+}
+
 std::optional<double> thresholdFor(const Thresholds& thresholds, const std::string& key) {
     if (key == "runtime") {
         return thresholds.maxRuntimeRegressionPercent;
     }
-
+    if (key == "p99_latency") {
+        return thresholds.maxP99LatencyRegressionPercent;
+    }
+    if (key == "throughput") {
+        return thresholds.maxThroughputRegressionPercent;
+    }
+    if (key == "cpu_time_per_operation") {
+        return thresholds.maxCpuRegressionPercent;
+    }
     if (key == "max_rss") {
         return thresholds.maxRssRegressionPercent;
     }
@@ -83,6 +103,21 @@ std::vector<MetricComparison> compareMetrics(const BenchmarkSummary& baseline,
               baseline.involuntaryContextSwitches,
               candidate.involuntaryContextSwitches,
               false);
+    addOptionalMetric(
+        metrics, "throughput", "Throughput", "ops/s", baseline.throughput, candidate.throughput, true);
+    addOptionalMetric(
+        metrics, "p50_latency", "p50 latency", "us", baseline.p50LatencyUs, candidate.p50LatencyUs, false);
+    addOptionalMetric(
+        metrics, "p95_latency", "p95 latency", "us", baseline.p95LatencyUs, candidate.p95LatencyUs, false);
+    addOptionalMetric(
+        metrics, "p99_latency", "p99 latency", "us", baseline.p99LatencyUs, candidate.p99LatencyUs, false);
+    addOptionalMetric(metrics,
+                      "cpu_time_per_operation",
+                      "CPU time / operation",
+                      "us",
+                      baseline.cpuTimePerOperationUs,
+                      candidate.cpuTimePerOperationUs,
+                      false);
     return metrics;
 }
 
@@ -116,6 +151,9 @@ Thresholds loadThresholds(const std::string& path) {
 
     Thresholds thresholds;
     readThreshold(json, "runtime_pct", thresholds.maxRuntimeRegressionPercent);
+    readThreshold(json, "p99_latency_pct", thresholds.maxP99LatencyRegressionPercent);
+    readThreshold(json, "throughput_pct", thresholds.maxThroughputRegressionPercent);
+    readThreshold(json, "cpu_time_pct", thresholds.maxCpuRegressionPercent);
     readThreshold(json, "max_rss_pct", thresholds.maxRssRegressionPercent);
     return thresholds;
 }

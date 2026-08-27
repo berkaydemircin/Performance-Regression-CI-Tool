@@ -22,8 +22,21 @@ struct ProcessMetrics {
     std::uint64_t involuntaryContextSwitches{};
 };
 
+struct LatencyMetrics {
+    std::optional<double> p50Us;
+    std::optional<double> p95Us;
+    std::optional<double> p99Us;
+};
+
+struct ApplicationMetrics {
+    std::optional<std::uint64_t> operations;
+    std::optional<double> throughput;
+    LatencyMetrics latency;
+};
+
 struct RunResult {
     ProcessMetrics process;
+    std::optional<ApplicationMetrics> application;
 };
 
 struct Distribution {
@@ -43,6 +56,11 @@ struct BenchmarkSummary {
     Distribution maxRssBytes;
     Distribution voluntaryContextSwitches;
     Distribution involuntaryContextSwitches;
+    std::optional<Distribution> throughput;
+    std::optional<Distribution> p50LatencyUs;
+    std::optional<Distribution> p95LatencyUs;
+    std::optional<Distribution> p99LatencyUs;
+    std::optional<Distribution> cpuTimePerOperationUs;
 };
 
 struct BenchmarkResult {
@@ -76,6 +94,10 @@ struct ComparisonResult {
 
 void to_json(nlohmann::json& json, const ProcessMetrics& value);
 void from_json(const nlohmann::json& json, ProcessMetrics& value);
+void to_json(nlohmann::json& json, const LatencyMetrics& value);
+void from_json(const nlohmann::json& json, LatencyMetrics& value);
+void to_json(nlohmann::json& json, const ApplicationMetrics& value);
+void from_json(const nlohmann::json& json, ApplicationMetrics& value);
 void to_json(nlohmann::json& json, const RunResult& value);
 void from_json(const nlohmann::json& json, RunResult& value);
 void to_json(nlohmann::json& json, const Distribution& value);

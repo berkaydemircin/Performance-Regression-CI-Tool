@@ -129,13 +129,36 @@ void printProcessReport(std::ostream& output, const ProcessMetrics& metrics) {
 void printRunReport(std::ostream& output, const RunResult& result) {
     printProcessReport(output, result.process);
     output << '\n';
+    if (result.application) {
+        if (result.application->operations) {
+            printRow(output, "Operations", formatCount(static_cast<double>(*result.application->operations)));
+        }
+        if (result.application->throughput) {
+            printRow(output, "Throughput", formatCount(*result.application->throughput) + "/s");
+        }
+        if (result.application->latency.p50Us) {
+            printRow(output, "p50 latency", formatMetric("us", *result.application->latency.p50Us));
+        }
+        if (result.application->latency.p95Us) {
+            printRow(output, "p95 latency", formatMetric("us", *result.application->latency.p95Us));
+        }
+        if (result.application->latency.p99Us) {
+            printRow(output, "p99 latency", formatMetric("us", *result.application->latency.p99Us));
+        }
+        output << '\n';
+    }
 }
 
 void printBenchmarkReport(std::ostream& output, const BenchmarkResult& result) {
     printDistribution(output, "Runtime", result.summary.wallTimeNs, "ns");
     printDistribution(output, "User CPU", result.summary.userTimeNs, "ns");
     printDistribution(output, "Maximum RSS", result.summary.maxRssBytes, "bytes");
-
+    if (result.summary.throughput) {
+        printDistribution(output, "Throughput", *result.summary.throughput, "ops/s");
+    }
+    if (result.summary.p99LatencyUs) {
+        printDistribution(output, "p99 latency", *result.summary.p99LatencyUs, "us");
+    }
     if (result.runs.size() == 1) {
         output << '\n';
         printRunReport(output, result.runs.front());

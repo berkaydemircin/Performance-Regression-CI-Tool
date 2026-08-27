@@ -10,6 +10,9 @@ namespace perflens {
 
 struct Thresholds {
     std::optional<double> maxRuntimeRegressionPercent;
+    std::optional<double> maxP99LatencyRegressionPercent;
+    std::optional<double> maxThroughputRegressionPercent;
+    std::optional<double> maxCpuRegressionPercent;
     std::optional<double> maxRssRegressionPercent;
 };
 
