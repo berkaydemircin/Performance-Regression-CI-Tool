@@ -35,6 +35,10 @@ std::optional<Distribution> collectOptional(const std::vector<RunResult>& runs, 
     return values.empty() ? std::nullopt : std::optional<Distribution>{summarize(values)};
 }
 
+std::optional<double> optionalCounter(const RunResult& run, const std::uint64_t value) {
+    return run.counters.available ? std::optional<double>{static_cast<double>(value)} : std::nullopt;
+}
+
 }
 
 Distribution summarize(const std::vector<double>& values) {
@@ -86,6 +90,24 @@ BenchmarkSummary summarizeRuns(const std::vector<RunResult>& runs) {
         return static_cast<double>(run.process.involuntaryContextSwitches);
     }));
 
+    summary.cycles =
+        collectOptional(runs, [](const RunResult& run) { return optionalCounter(run, run.counters.cycles); });
+    summary.instructions = collectOptional(
+        runs, [](const RunResult& run) { return optionalCounter(run, run.counters.instructions); });
+    summary.branches = collectOptional(
+        runs, [](const RunResult& run) { return optionalCounter(run, run.counters.branches); });
+    summary.branchMisses = collectOptional(
+        runs, [](const RunResult& run) { return optionalCounter(run, run.counters.branchMisses); });
+    summary.cacheReferences = collectOptional(
+        runs, [](const RunResult& run) { return optionalCounter(run, run.counters.cacheReferences); });
+    summary.cacheMisses = collectOptional(
+        runs, [](const RunResult& run) { return optionalCounter(run, run.counters.cacheMisses); });
+    summary.ipc = collectOptional(runs, [](const RunResult& run) -> std::optional<double> {
+        if (!run.counters.available || run.counters.cycles == 0) {
+            return std::nullopt;
+        }
+        return static_cast<double>(run.counters.instructions) / static_cast<double>(run.counters.cycles);
+    });
     summary.throughput = collectOptional(runs, [](const RunResult& run) -> std::optional<double> {
         return run.application ? run.application->throughput : std::nullopt;
     });

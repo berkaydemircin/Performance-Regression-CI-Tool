@@ -54,6 +54,32 @@ void from_json(const nlohmann::json& json, ProcessMetrics& value) {
     json.at("involuntary_context_switches").get_to(value.involuntaryContextSwitches);
 }
 
+void to_json(nlohmann::json& json, const PerfCounters& value) {
+    json = nlohmann::json{{"available", value.available},
+                          {"unavailable_reason", value.unavailableReason},
+                          {"time_enabled_ns", value.timeEnabledNs},
+                          {"time_running_ns", value.timeRunningNs},
+                          {"cycles", value.cycles},
+                          {"instructions", value.instructions},
+                          {"branches", value.branches},
+                          {"branch_misses", value.branchMisses},
+                          {"cache_references", value.cacheReferences},
+                          {"cache_misses", value.cacheMisses}};
+}
+
+void from_json(const nlohmann::json& json, PerfCounters& value) {
+    json.at("available").get_to(value.available);
+    json.at("unavailable_reason").get_to(value.unavailableReason);
+    json.at("time_enabled_ns").get_to(value.timeEnabledNs);
+    json.at("time_running_ns").get_to(value.timeRunningNs);
+    json.at("cycles").get_to(value.cycles);
+    json.at("instructions").get_to(value.instructions);
+    json.at("branches").get_to(value.branches);
+    json.at("branch_misses").get_to(value.branchMisses);
+    json.at("cache_references").get_to(value.cacheReferences);
+    json.at("cache_misses").get_to(value.cacheMisses);
+}
+
 void to_json(nlohmann::json& json, const LatencyMetrics& value) {
     json = nlohmann::json::object();
     putOptional(json, "p50_us", value.p50Us);
@@ -81,12 +107,13 @@ void from_json(const nlohmann::json& json, ApplicationMetrics& value) {
 }
 
 void to_json(nlohmann::json& json, const RunResult& value) {
-    json = nlohmann::json{{"process", value.process}};
+    json = nlohmann::json{{"process", value.process}, {"counters", value.counters}};
     putOptional(json, "application", value.application);
 }
 
 void from_json(const nlohmann::json& json, RunResult& value) {
     json.at("process").get_to(value.process);
+    json.at("counters").get_to(value.counters);
     getOptional(json, "application", value.application);
 }
 
@@ -117,6 +144,13 @@ void to_json(nlohmann::json& json, const BenchmarkSummary& value) {
                           {"max_rss_bytes", value.maxRssBytes},
                           {"voluntary_context_switches", value.voluntaryContextSwitches},
                           {"involuntary_context_switches", value.involuntaryContextSwitches}};
+    putOptional(json, "cycles", value.cycles);
+    putOptional(json, "instructions", value.instructions);
+    putOptional(json, "branches", value.branches);
+    putOptional(json, "branch_misses", value.branchMisses);
+    putOptional(json, "cache_references", value.cacheReferences);
+    putOptional(json, "cache_misses", value.cacheMisses);
+    putOptional(json, "ipc", value.ipc);
     putOptional(json, "throughput", value.throughput);
     putOptional(json, "p50_latency_us", value.p50LatencyUs);
     putOptional(json, "p95_latency_us", value.p95LatencyUs);
@@ -131,6 +165,13 @@ void from_json(const nlohmann::json& json, BenchmarkSummary& value) {
     json.at("max_rss_bytes").get_to(value.maxRssBytes);
     json.at("voluntary_context_switches").get_to(value.voluntaryContextSwitches);
     json.at("involuntary_context_switches").get_to(value.involuntaryContextSwitches);
+    getOptional(json, "cycles", value.cycles);
+    getOptional(json, "instructions", value.instructions);
+    getOptional(json, "branches", value.branches);
+    getOptional(json, "branch_misses", value.branchMisses);
+    getOptional(json, "cache_references", value.cacheReferences);
+    getOptional(json, "cache_misses", value.cacheMisses);
+    getOptional(json, "ipc", value.ipc);
     getOptional(json, "throughput", value.throughput);
     getOptional(json, "p50_latency_us", value.p50LatencyUs);
     getOptional(json, "p95_latency_us", value.p95LatencyUs);

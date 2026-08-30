@@ -27,11 +27,16 @@ TEST_CASE("run summaries include derived application metrics") {
     run.application->operations = 1000;
     run.application->throughput = 100'000.0;
     run.application->latency.p99Us = 20.0;
+    run.counters.available = true;
+    run.counters.cycles = 100;
+    run.counters.instructions = 200;
 
     const perflens::BenchmarkSummary summary = perflens::summarizeRuns({run});
 
     REQUIRE(summary.cpuTimePerOperationUs);
     CHECK(summary.cpuTimePerOperationUs->median == 5.0);
+    REQUIRE(summary.ipc);
+    CHECK(summary.ipc->median == 2.0);
     REQUIRE(summary.p99LatencyUs);
     CHECK(summary.p99LatencyUs->median == 20.0);
 }

@@ -147,6 +147,24 @@ void printRunReport(std::ostream& output, const RunResult& result) {
         }
         output << '\n';
     }
+    if (result.counters.available) {
+        printRow(output, "CPU cycles", formatCount(static_cast<double>(result.counters.cycles)));
+        printRow(output, "Instructions", formatCount(static_cast<double>(result.counters.instructions)));
+        const double ipc = result.counters.cycles == 0 ? 0.0
+                                                       : static_cast<double>(result.counters.instructions) /
+                                                             static_cast<double>(result.counters.cycles);
+        printRow(output, "IPC", formatMetric("ratio", ipc));
+        printRow(output, "Branches", formatCount(static_cast<double>(result.counters.branches)));
+        printRow(output, "Branch misses", formatCount(static_cast<double>(result.counters.branchMisses)));
+        printRow(
+            output, "Cache references", formatCount(static_cast<double>(result.counters.cacheReferences)));
+        printRow(output, "Cache misses", formatCount(static_cast<double>(result.counters.cacheMisses)));
+    } else {
+        printRow(output, "Hardware counters", "unavailable");
+        if (!result.counters.unavailableReason.empty()) {
+            output << "  " << result.counters.unavailableReason << '\n';
+        }
+    }
 }
 
 void printBenchmarkReport(std::ostream& output, const BenchmarkResult& result) {

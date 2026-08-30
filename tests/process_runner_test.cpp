@@ -79,17 +79,33 @@ TEST_CASE("targets can be pinned to an allowed CPU") {
 
     perflens::RunOptions options;
     options.cpu = cpu;
+    options.collectPerfCounters = false;
     CHECK(perflens::ProcessRunner{}.run({"/bin/true"}, options).succeeded());
 }
 
 TEST_CASE("invalid CPU affinity is a pre-exec failure") {
     perflens::RunOptions options;
     options.cpu = CPU_SETSIZE;
+    options.collectPerfCounters = false;
 
     try {
         static_cast<void>(perflens::ProcessRunner{}.run({"/bin/true"}, options));
         FAIL("invalid CPU affinity did not fail");
     } catch (const std::system_error& error) {
         CHECK(error.code() == std::errc::invalid_argument);
+    }
+}
+
+TEST_CASE("multithreaded targets collect or explicitly report unavailable counters") {
+    perflens::RunOptions options;
+    const perflens::ProcessOutcome outcome =
+        perflens::ProcessRunner{}.run({"./lock_contention", "contended"}, options);
+
+    CHECK(outcome.succeeded());
+    if (outcome.result.counters.available) {
+        CHECK(outcome.result.counters.cycles > 0);
+        CHECK(outcome.result.counters.instructions > 0);
+    } else {
+        CHECK_FALSE(outcome.result.counters.unavailableReason.empty());
     }
 }

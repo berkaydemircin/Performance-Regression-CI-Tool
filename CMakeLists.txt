@@ -39,6 +39,7 @@ add_library(perflens_core
     src/analysis/comparison.cpp
     src/analysis/statistics.cpp
     src/model.cpp
+    src/perf/perf_counter.cpp
     src/process/process_runner.cpp
     src/process/workload_metrics.cpp
     src/report/terminal_report.cpp
@@ -56,6 +57,9 @@ install(TARGETS perflens RUNTIME DESTINATION bin)
 
 add_executable(cpu_work examples/cpu_work.cpp)
 target_compile_options(cpu_work PRIVATE -O2 -g -Wall -Wextra -Wpedantic)
+add_executable(lock_contention examples/lock_contention.cpp)
+target_compile_options(lock_contention PRIVATE -O2 -g -Wall -Wextra -Wpedantic)
+target_link_libraries(lock_contention PRIVATE Threads::Threads)
 
 include(CTest)
 
@@ -71,6 +75,7 @@ if(BUILD_TESTING)
     add_executable(perflens_tests
         tests/analysis_test.cpp
         tests/model_test.cpp
+        tests/perf_test.cpp
         tests/process_runner_test.cpp
         tests/workload_metrics_test.cpp
     )

@@ -15,6 +15,9 @@ TEST_CASE("run results round trip through JSON") {
     original.process.majorFaults = 8;
     original.process.voluntaryContextSwitches = 9;
     original.process.involuntaryContextSwitches = 10;
+    original.counters.available = true;
+    original.counters.cycles = 11;
+    original.counters.instructions = 12;
 
     const nlohmann::json json = original;
     const perflens::RunResult decoded = json.get<perflens::RunResult>();
@@ -27,4 +30,6 @@ TEST_CASE("run results round trip through JSON") {
     CHECK(decoded.process.majorFaults == original.process.majorFaults);
     CHECK(decoded.process.voluntaryContextSwitches == original.process.voluntaryContextSwitches);
     CHECK(decoded.process.involuntaryContextSwitches == original.process.involuntaryContextSwitches);
+    CHECK(decoded.counters.cycles == original.counters.cycles);
+    CHECK(decoded.counters.instructions == original.counters.instructions);
 }

@@ -1,5 +1,6 @@
 #include "perflens/process_runner.hpp"
 
+#include "perflens/perf_counter.hpp"
 #include "perflens/workload_metrics.hpp"
 
 #include <array>
@@ -394,6 +395,48 @@ ProcessOutcome ProcessRunner::run(const std::vector<std::string>& command, const
         throw std::system_error(errno, std::generic_category(), "setpgid");
     }
 
+    std::unique_ptr<PerfCounterCollector> counters;
+    std::string counterFailure;
+    if (options.collectPerfCounters) {
+        try {
+            counters = std::make_unique<PerfCounterCollector>(child);
+        } catch (const std::exception& error) {
+            counterFailure = error.what();
+            if (options.requirePerf) {
+                throw;
+            }
+        }
+    }
+
+    bool collectorsStarted = false;
+    bool collectorsStopped = false;
+    const auto startCollectors = [&]() {
+        if (counters) {
+            counters->start();
+        }
+
+        collectorsStarted = true;
+    };
+    const auto stopCollectors = [&]() {
+        if (!collectorsStarted || collectorsStopped) {
+            return;
+        }
+        if (counters) {
+            try {
+                counters->stop();
+            } catch (const std::exception& error) {
+                counterFailure = error.what();
+                counters.reset();
+                if (options.requirePerf) {
+                    throw;
+                }
+            }
+        }
+
+        collectorsStopped = true;
+    };
+    startCollectors();
+
     const auto startedAt = std::chrono::steady_clock::now();
     const char release = 1;
     if (write(startPipe[1].get(), &release, 1) != 1) {
@@ -455,6 +498,7 @@ ProcessOutcome ProcessRunner::run(const std::vector<std::string>& command, const
 
     const auto finishedAt = std::chrono::steady_clock::now();
 
+    stopCollectors();
     childGuard.release();
     const std::optional<ChildError> childError = readChildError(errorPipe[0].get());
     if (childError) {
@@ -463,6 +507,20 @@ ProcessOutcome ProcessRunner::run(const std::vector<std::string>& command, const
 
     ProcessOutcome outcome;
     outcome.result.process = makeMetrics(finishedAt - startedAt, usage);
+    outcome.result.counters.unavailableReason =
+        options.collectPerfCounters ? counterFailure : "hardware counters disabled";
+    if (counters) {
+        try {
+            outcome.result.counters = counters->read();
+        } catch (const std::exception& error) {
+            if (options.requirePerf) {
+                throw;
+            }
+            outcome.result.counters = PerfCounters{};
+            outcome.result.counters.unavailableReason = error.what();
+        }
+    }
+
     if (options.collectApplicationMetrics) {
         outcome.result.application = loadApplicationMetrics(metricsFile.path());
     }

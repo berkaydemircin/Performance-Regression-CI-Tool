@@ -118,6 +118,32 @@ std::vector<MetricComparison> compareMetrics(const BenchmarkSummary& baseline,
                       baseline.cpuTimePerOperationUs,
                       candidate.cpuTimePerOperationUs,
                       false);
+    addOptionalMetric(metrics, "cycles", "CPU cycles", "count", baseline.cycles, candidate.cycles, false);
+    addOptionalMetric(metrics,
+                      "instructions",
+                      "Instructions",
+                      "count",
+                      baseline.instructions,
+                      candidate.instructions,
+                      false);
+    addOptionalMetric(metrics, "ipc", "IPC", "ratio", baseline.ipc, candidate.ipc, true);
+    addOptionalMetric(metrics, "branches", "Branches", "count", baseline.branches, candidate.branches, false);
+    addOptionalMetric(metrics,
+                      "branch_misses",
+                      "Branch misses",
+                      "count",
+                      baseline.branchMisses,
+                      candidate.branchMisses,
+                      false);
+    addOptionalMetric(metrics,
+                      "cache_references",
+                      "Cache references",
+                      "count",
+                      baseline.cacheReferences,
+                      candidate.cacheReferences,
+                      false);
+    addOptionalMetric(
+        metrics, "cache_misses", "Cache misses", "count", baseline.cacheMisses, candidate.cacheMisses, false);
     return metrics;
 }
 
