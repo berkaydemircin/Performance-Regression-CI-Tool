@@ -72,7 +72,7 @@ scaleCounter(const std::uint64_t rawValue, const std::uint64_t timeEnabled, cons
     if (scaled >= static_cast<long double>(std::numeric_limits<std::uint64_t>::max())) {
         return std::numeric_limits<std::uint64_t>::max();
     }
-    return static_cast<std::uint64_t>(std::llround(scaled));
+    return static_cast<std::uint64_t>(scaled + 0.5L);
 }
 
 PerfCounterCollector::PerfCounterCollector(const pid_t target) : impl_(std::make_unique<Impl>()) {
