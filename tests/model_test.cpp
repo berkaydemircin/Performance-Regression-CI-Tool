@@ -18,6 +18,8 @@ TEST_CASE("run results round trip through JSON") {
     original.counters.available = true;
     original.counters.cycles = 11;
     original.counters.instructions = 12;
+    original.cpuProfile.available = true;
+    original.cpuProfile.functions.push_back({"libexample.so", "hotFunction", 13});
 
     const nlohmann::json json = original;
     const perflens::RunResult decoded = json.get<perflens::RunResult>();
@@ -32,4 +34,8 @@ TEST_CASE("run results round trip through JSON") {
     CHECK(decoded.process.involuntaryContextSwitches == original.process.involuntaryContextSwitches);
     CHECK(decoded.counters.cycles == original.counters.cycles);
     CHECK(decoded.counters.instructions == original.counters.instructions);
+    REQUIRE(decoded.cpuProfile.functions.size() == 1);
+    CHECK(decoded.cpuProfile.functions.front().module == "libexample.so");
+    CHECK(decoded.cpuProfile.functions.front().function == "hotFunction");
+    CHECK(decoded.cpuProfile.functions.front().samples == 13);
 }

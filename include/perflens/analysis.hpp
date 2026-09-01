@@ -20,6 +20,8 @@ struct Thresholds {
 [[nodiscard]] BenchmarkSummary summarizeRuns(const std::vector<RunResult>& runs);
 [[nodiscard]] std::vector<MetricComparison> compareMetrics(const BenchmarkSummary& baseline,
                                                            const BenchmarkSummary& candidate);
+[[nodiscard]] std::vector<ProfileChange> compareProfiles(const std::vector<RunResult>& baseline,
+                                                         const std::vector<RunResult>& candidate);
 [[nodiscard]] std::vector<ThresholdViolation> evaluateThresholds(const std::vector<MetricComparison>& metrics,
                                                                  const Thresholds& thresholds);
 [[nodiscard]] Thresholds loadThresholds(const std::string& path);

@@ -165,6 +165,29 @@ void printRunReport(std::ostream& output, const RunResult& result) {
             output << "  " << result.counters.unavailableReason << '\n';
         }
     }
+
+    if (result.cpuProfile.available && !result.cpuProfile.functions.empty()) {
+        output << "\nTop CPU functions\n";
+        const std::uint64_t total = std::accumulate(
+            result.cpuProfile.functions.begin(),
+            result.cpuProfile.functions.end(),
+            std::uint64_t{0},
+            [](const std::uint64_t sum, const FunctionSample& value) { return sum + value.samples; });
+        const std::size_t count = std::min<std::size_t>(10, result.cpuProfile.functions.size());
+        for (std::size_t index = 0; index < count; ++index) {
+            const FunctionSample& function = result.cpuProfile.functions[index];
+            const double percent =
+                total == 0 ? 0.0 : static_cast<double>(function.samples) / static_cast<double>(total) * 100.0;
+            std::ostringstream value;
+            value << std::fixed << std::setprecision(1) << percent << '%';
+            printRow(output, function.function, value.str());
+        }
+    } else if (!result.cpuProfile.available && !result.cpuProfile.unavailableReason.empty() &&
+               result.cpuProfile.unavailableReason != "CPU sampling disabled") {
+        output << '\n';
+        printRow(output, "CPU profile", "unavailable");
+        output << "  " << result.cpuProfile.unavailableReason << '\n';
+    }
 }
 
 void printBenchmarkReport(std::ostream& output, const BenchmarkResult& result) {
@@ -194,6 +217,26 @@ void printComparisonReport(std::ostream& output, const ComparisonResult& result)
                << formatMetric(metric.unit, metric.baseline) << std::setw(17)
                << formatMetric(metric.unit, metric.candidate) << std::setw(13)
                << (metric.changePercent ? formatChange(*metric.changePercent) : "n/a") << '\n';
+    }
+
+    if (!result.profileChanges.empty()) {
+        output << "\nLargest CPU profile changes\n";
+        output << std::left << std::setw(44) << "function" << std::right << std::setw(12) << "baseline"
+               << std::setw(12) << "candidate" << std::setw(12) << "change" << '\n';
+        const std::size_t count = std::min<std::size_t>(10, result.profileChanges.size());
+        for (std::size_t index = 0; index < count; ++index) {
+            const ProfileChange& change = result.profileChanges[index];
+            std::ostringstream baseline;
+            std::ostringstream candidate;
+            std::ostringstream delta;
+            baseline << std::fixed << std::setprecision(1) << change.baselinePercent << '%';
+            candidate << std::fixed << std::setprecision(1) << change.candidatePercent << '%';
+            delta << std::showpos << std::fixed << std::setprecision(1) << change.changePercentagePoints
+                  << "pp";
+            output << std::left << std::setw(44) << change.function.substr(0, 43) << std::right
+                   << std::setw(12) << baseline.str() << std::setw(12) << candidate.str() << std::setw(12)
+                   << delta.str() << '\n';
+        }
     }
 
     if (!result.violations.empty()) {

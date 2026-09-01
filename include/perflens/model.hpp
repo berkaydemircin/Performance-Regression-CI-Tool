@@ -47,10 +47,24 @@ struct ApplicationMetrics {
     LatencyMetrics latency;
 };
 
+struct FunctionSample {
+    std::string module;
+    std::string function;
+    std::uint64_t samples{};
+};
+
+struct CpuProfile {
+    bool available{};
+    std::string unavailableReason;
+    std::uint64_t lostSamples{};
+    std::vector<FunctionSample> functions;
+};
+
 struct RunResult {
     ProcessMetrics process;
     PerfCounters counters;
     std::optional<ApplicationMetrics> application;
+    CpuProfile cpuProfile;
 };
 
 struct Distribution {
@@ -99,6 +113,14 @@ struct MetricComparison {
     bool higherIsBetter{};
 };
 
+struct ProfileChange {
+    std::string module;
+    std::string function;
+    double baselinePercent{};
+    double candidatePercent{};
+    double changePercentagePoints{};
+};
+
 struct ThresholdViolation {
     std::string metric;
     double changePercent{};
@@ -110,6 +132,7 @@ struct ComparisonResult {
     BenchmarkResult candidate;
     std::uint64_t seed{};
     std::vector<MetricComparison> metrics;
+    std::vector<ProfileChange> profileChanges;
     std::vector<ThresholdViolation> violations;
 };
 
@@ -121,6 +144,10 @@ void to_json(nlohmann::json& json, const LatencyMetrics& value);
 void from_json(const nlohmann::json& json, LatencyMetrics& value);
 void to_json(nlohmann::json& json, const ApplicationMetrics& value);
 void from_json(const nlohmann::json& json, ApplicationMetrics& value);
+void to_json(nlohmann::json& json, const FunctionSample& value);
+void from_json(const nlohmann::json& json, FunctionSample& value);
+void to_json(nlohmann::json& json, const CpuProfile& value);
+void from_json(const nlohmann::json& json, CpuProfile& value);
 void to_json(nlohmann::json& json, const RunResult& value);
 void from_json(const nlohmann::json& json, RunResult& value);
 void to_json(nlohmann::json& json, const Distribution& value);
@@ -131,6 +158,8 @@ void to_json(nlohmann::json& json, const BenchmarkResult& value);
 void from_json(const nlohmann::json& json, BenchmarkResult& value);
 void to_json(nlohmann::json& json, const MetricComparison& value);
 void from_json(const nlohmann::json& json, MetricComparison& value);
+void to_json(nlohmann::json& json, const ProfileChange& value);
+void from_json(const nlohmann::json& json, ProfileChange& value);
 void to_json(nlohmann::json& json, const ThresholdViolation& value);
 void from_json(const nlohmann::json& json, ThresholdViolation& value);
 void to_json(nlohmann::json& json, const ComparisonResult& value);

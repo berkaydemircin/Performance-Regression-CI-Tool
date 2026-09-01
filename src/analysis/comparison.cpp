@@ -49,6 +49,21 @@ void addOptionalMetric(std::vector<MetricComparison>& output,
     }
 }
 
+using ProfileKey = std::pair<std::string, std::string>;
+
+std::pair<std::map<ProfileKey, std::uint64_t>, std::uint64_t>
+aggregateProfile(const std::vector<RunResult>& runs) {
+    std::map<ProfileKey, std::uint64_t> aggregate;
+    std::uint64_t total = 0;
+    for (const RunResult& run : runs) {
+        for (const FunctionSample& function : run.cpuProfile.functions) {
+            aggregate[{function.module, function.function}] += function.samples;
+            total += function.samples;
+        }
+    }
+    return {std::move(aggregate), total};
+}
+
 std::optional<double> thresholdFor(const Thresholds& thresholds, const std::string& key) {
     if (key == "runtime") {
         return thresholds.maxRuntimeRegressionPercent;
@@ -145,6 +160,43 @@ std::vector<MetricComparison> compareMetrics(const BenchmarkSummary& baseline,
     addOptionalMetric(
         metrics, "cache_misses", "Cache misses", "count", baseline.cacheMisses, candidate.cacheMisses, false);
     return metrics;
+}
+
+std::vector<ProfileChange> compareProfiles(const std::vector<RunResult>& baseline,
+                                           const std::vector<RunResult>& candidate) {
+    const auto [baselineAggregate, baselineTotal] = aggregateProfile(baseline);
+    const auto [candidateAggregate, candidateTotal] = aggregateProfile(candidate);
+    std::map<ProfileKey, bool> keys;
+    for (const auto& [key, unused] : baselineAggregate) {
+        static_cast<void>(unused);
+        keys[key] = true;
+    }
+    for (const auto& [key, unused] : candidateAggregate) {
+        static_cast<void>(unused);
+        keys[key] = true;
+    }
+
+    std::vector<ProfileChange> changes;
+    changes.reserve(keys.size());
+    for (const auto& [key, unused] : keys) {
+        static_cast<void>(unused);
+        const double baselinePercent =
+            baselineTotal == 0
+                ? 0.0
+                : static_cast<double>(baselineAggregate.contains(key) ? baselineAggregate.at(key) : 0) /
+                      static_cast<double>(baselineTotal) * 100.0;
+        const double candidatePercent =
+            candidateTotal == 0
+                ? 0.0
+                : static_cast<double>(candidateAggregate.contains(key) ? candidateAggregate.at(key) : 0) /
+                      static_cast<double>(candidateTotal) * 100.0;
+        changes.push_back(
+            {key.first, key.second, baselinePercent, candidatePercent, candidatePercent - baselinePercent});
+    }
+    std::sort(changes.begin(), changes.end(), [](const ProfileChange& left, const ProfileChange& right) {
+        return std::abs(left.changePercentagePoints) > std::abs(right.changePercentagePoints);
+    });
+    return changes;
 }
 
 std::vector<ThresholdViolation> evaluateThresholds(const std::vector<MetricComparison>& metrics,

@@ -1,6 +1,8 @@
 #include "perflens/process_runner.hpp"
 
 #include "perflens/perf_counter.hpp"
+#include "perflens/perf_sampler.hpp"
+#include "perflens/symbolizer.hpp"
 #include "perflens/workload_metrics.hpp"
 
 #include <array>
@@ -351,6 +353,13 @@ void signalProcessGroup(const pid_t child, const int signal) {
     }
 }
 
+std::string currentExecutable(const pid_t process) {
+    std::array<char, 4096> path{};
+    const std::string link = "/proc/" + std::to_string(process) + "/exe";
+    const ssize_t count = readlink(link.c_str(), path.data(), path.size() - 1);
+    return count <= 0 ? std::string{} : std::string{path.data(), static_cast<std::size_t>(count)};
+}
+
 }
 
 bool ProcessOutcome::succeeded() const noexcept {
@@ -408,13 +417,28 @@ ProcessOutcome ProcessRunner::run(const std::vector<std::string>& command, const
         }
     }
 
+    std::unique_ptr<PerfSampler> sampler;
+    std::string samplerFailure;
+    if (options.samplingFrequency != 0) {
+        try {
+            sampler = std::make_unique<PerfSampler>(child, options.samplingFrequency);
+        } catch (const std::exception& error) {
+            samplerFailure = error.what();
+            if (options.requirePerf) {
+                throw;
+            }
+        }
+    }
+
     bool collectorsStarted = false;
     bool collectorsStopped = false;
     const auto startCollectors = [&]() {
         if (counters) {
             counters->start();
         }
-
+        if (sampler) {
+            sampler->start();
+        }
         collectorsStarted = true;
     };
     const auto stopCollectors = [&]() {
@@ -432,7 +456,17 @@ ProcessOutcome ProcessRunner::run(const std::vector<std::string>& command, const
                 }
             }
         }
-
+        if (sampler) {
+            try {
+                sampler->stop();
+            } catch (const std::exception& error) {
+                samplerFailure = error.what();
+                sampler.reset();
+                if (options.requirePerf) {
+                    throw;
+                }
+            }
+        }
         collectorsStopped = true;
     };
     startCollectors();
@@ -460,6 +494,9 @@ ProcessOutcome ProcessRunner::run(const std::vector<std::string>& command, const
     bool interrupted = false;
     bool sentKill = false;
     auto graceDeadline = std::chrono::steady_clock::time_point::max();
+    auto nextMapCapture = startedAt;
+    std::vector<MemoryMapping> mappings;
+    const std::string ownExecutable = currentExecutable(getpid());
     while (true) {
         const pid_t waitResult = wait4(child, &status, WNOHANG, &usage);
         if (waitResult == child) {
@@ -471,6 +508,16 @@ ProcessOutcome ProcessRunner::run(const std::vector<std::string>& command, const
 
         const auto now = std::chrono::steady_clock::now();
 
+        if (sampler && collectorsStarted) {
+            sampler->drain();
+            if (now >= nextMapCapture && currentExecutable(child) != ownExecutable) {
+                const std::vector<MemoryMapping> currentMappings = readProcMaps(child);
+                if (!currentMappings.empty()) {
+                    mappings = currentMappings;
+                }
+                nextMapCapture = now + std::chrono::milliseconds{20};
+            }
+        }
         if (!stopping && receivedSignal != 0) {
             interrupted = true;
             stopping = true;
@@ -509,6 +556,9 @@ ProcessOutcome ProcessRunner::run(const std::vector<std::string>& command, const
     outcome.result.process = makeMetrics(finishedAt - startedAt, usage);
     outcome.result.counters.unavailableReason =
         options.collectPerfCounters ? counterFailure : "hardware counters disabled";
+    outcome.result.cpuProfile.unavailableReason =
+        options.samplingFrequency == 0 ? "CPU sampling disabled" : samplerFailure;
+
     if (counters) {
         try {
             outcome.result.counters = counters->read();
@@ -520,7 +570,20 @@ ProcessOutcome ProcessRunner::run(const std::vector<std::string>& command, const
             outcome.result.counters.unavailableReason = error.what();
         }
     }
-
+    if (sampler) {
+        try {
+            outcome.result.cpuProfile.available = true;
+            outcome.result.cpuProfile.lostSamples = sampler->lostSamples();
+            outcome.result.cpuProfile.functions = symbolizeSamples(sampler->samples(), mappings);
+            outcome.result.cpuProfile.unavailableReason.clear();
+        } catch (const std::exception& error) {
+            if (options.requirePerf) {
+                throw;
+            }
+            outcome.result.cpuProfile = CpuProfile{};
+            outcome.result.cpuProfile.unavailableReason = error.what();
+        }
+    }
     if (options.collectApplicationMetrics) {
         outcome.result.application = loadApplicationMetrics(metricsFile.path());
     }

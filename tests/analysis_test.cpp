@@ -41,6 +41,19 @@ TEST_CASE("run summaries include derived application metrics") {
     CHECK(summary.p99LatencyUs->median == 20.0);
 }
 
+TEST_CASE("profile comparison sorts by absolute CPU share change") {
+    perflens::RunResult baseline;
+    baseline.cpuProfile.functions = {{"app", "stable", 50}, {"app", "changed", 50}};
+    perflens::RunResult candidate;
+    candidate.cpuProfile.functions = {{"app", "stable", 20}, {"app", "changed", 80}};
+
+    const std::vector<perflens::ProfileChange> changes = perflens::compareProfiles({baseline}, {candidate});
+
+    REQUIRE(changes.size() == 2);
+    CHECK(changes.front().function == "changed");
+    CHECK(changes.front().changePercentagePoints == 30.0);
+}
+
 TEST_CASE("thresholds use metric direction") {
     const std::vector<perflens::MetricComparison> metrics{
         {"runtime", "Runtime", "ns", 100.0, 112.0, 12.0, false},

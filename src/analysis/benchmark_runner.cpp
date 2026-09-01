@@ -121,6 +121,7 @@ ComparisonResult runComparison(const std::vector<std::string>& baseline,
     result.baseline.summary = summarizeRuns(result.baseline.runs);
     result.candidate.summary = summarizeRuns(result.candidate.runs);
     result.metrics = compareMetrics(result.baseline.summary, result.candidate.summary);
+    result.profileChanges = compareProfiles(result.baseline.runs, result.candidate.runs);
     result.violations = evaluateThresholds(result.metrics, thresholds);
     return result;
 }

@@ -106,14 +106,40 @@ void from_json(const nlohmann::json& json, ApplicationMetrics& value) {
     value.latency = latency == json.end() ? LatencyMetrics{} : latency->get<LatencyMetrics>();
 }
 
+void to_json(nlohmann::json& json, const FunctionSample& value) {
+    json = nlohmann::json{{"module", value.module}, {"function", value.function}, {"samples", value.samples}};
+}
+
+void from_json(const nlohmann::json& json, FunctionSample& value) {
+    json.at("module").get_to(value.module);
+    json.at("function").get_to(value.function);
+    json.at("samples").get_to(value.samples);
+}
+
+void to_json(nlohmann::json& json, const CpuProfile& value) {
+    json = nlohmann::json{{"available", value.available},
+                          {"unavailable_reason", value.unavailableReason},
+                          {"lost_samples", value.lostSamples},
+                          {"functions", value.functions}};
+}
+
+void from_json(const nlohmann::json& json, CpuProfile& value) {
+    json.at("available").get_to(value.available);
+    json.at("unavailable_reason").get_to(value.unavailableReason);
+    json.at("lost_samples").get_to(value.lostSamples);
+    json.at("functions").get_to(value.functions);
+}
+
 void to_json(nlohmann::json& json, const RunResult& value) {
-    json = nlohmann::json{{"process", value.process}, {"counters", value.counters}};
+    json = nlohmann::json{
+        {"process", value.process}, {"counters", value.counters}, {"cpu_profile", value.cpuProfile}};
     putOptional(json, "application", value.application);
 }
 
 void from_json(const nlohmann::json& json, RunResult& value) {
     json.at("process").get_to(value.process);
     json.at("counters").get_to(value.counters);
+    json.at("cpu_profile").get_to(value.cpuProfile);
     getOptional(json, "application", value.application);
 }
 
@@ -208,6 +234,22 @@ void from_json(const nlohmann::json& json, MetricComparison& value) {
     json.at("higher_is_better").get_to(value.higherIsBetter);
 }
 
+void to_json(nlohmann::json& json, const ProfileChange& value) {
+    json = nlohmann::json{{"module", value.module},
+                          {"function", value.function},
+                          {"baseline_percent", value.baselinePercent},
+                          {"candidate_percent", value.candidatePercent},
+                          {"change_percentage_points", value.changePercentagePoints}};
+}
+
+void from_json(const nlohmann::json& json, ProfileChange& value) {
+    json.at("module").get_to(value.module);
+    json.at("function").get_to(value.function);
+    json.at("baseline_percent").get_to(value.baselinePercent);
+    json.at("candidate_percent").get_to(value.candidatePercent);
+    json.at("change_percentage_points").get_to(value.changePercentagePoints);
+}
+
 void to_json(nlohmann::json& json, const ThresholdViolation& value) {
     json = nlohmann::json{{"metric", value.metric},
                           {"change_percent", value.changePercent},
@@ -225,6 +267,7 @@ void to_json(nlohmann::json& json, const ComparisonResult& value) {
                           {"candidate", value.candidate},
                           {"seed", value.seed},
                           {"metrics", value.metrics},
+                          {"profile_changes", value.profileChanges},
                           {"violations", value.violations}};
 }
 
@@ -233,6 +276,7 @@ void from_json(const nlohmann::json& json, ComparisonResult& value) {
     json.at("candidate").get_to(value.candidate);
     json.at("seed").get_to(value.seed);
     json.at("metrics").get_to(value.metrics);
+    json.at("profile_changes").get_to(value.profileChanges);
     json.at("violations").get_to(value.violations);
 }
 

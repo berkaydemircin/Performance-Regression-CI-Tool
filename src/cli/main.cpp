@@ -77,7 +77,8 @@ perflens::RunOptions makeRunOptions(const std::optional<std::string>& timeout,
                                     const std::string& gracePeriod,
                                     const std::optional<unsigned int> cpu,
                                     const bool noCounters,
-                                    const bool requirePerf) {
+                                    const bool requirePerf,
+                                    const std::uint64_t profileFrequency) {
     perflens::RunOptions options;
     if (timeout) {
         options.timeout = parseDuration(*timeout);
@@ -87,6 +88,7 @@ perflens::RunOptions makeRunOptions(const std::optional<std::string>& timeout,
     options.cpu = cpu;
     options.collectPerfCounters = !noCounters;
     options.requirePerf = requirePerf;
+    options.samplingFrequency = profileFrequency;
     return options;
 }
 
@@ -115,6 +117,7 @@ int main(const int argc, char** argv) {
     std::string runGrace = "500ms";
     bool runNoCounters = false;
     bool runRequirePerf = false;
+    std::uint64_t runProfileFrequency = 0;
     std::optional<std::string> runJson;
 
     CLI::App* run = app.add_subcommand("run", "Execute a terminating target and report resource usage");
@@ -127,6 +130,7 @@ int main(const int argc, char** argv) {
     run->add_option("--grace-period", runGrace, "Wait before sending SIGKILL");
     run->add_flag("--no-counters", runNoCounters, "Disable hardware-counter collection");
     run->add_flag("--require-perf", runRequirePerf, "Fail when perf events are unavailable");
+    run->add_option("--profile-frequency", runProfileFrequency, "Collect CPU samples at this frequency");
     run->add_option("--json", runJson, "Write the benchmark result as JSON");
 
     std::string baselineCommand;
@@ -139,6 +143,7 @@ int main(const int argc, char** argv) {
     std::string compareGrace = "500ms";
     bool compareNoCounters = false;
     bool compareRequirePerf = false;
+    std::uint64_t compareProfileFrequency = 0;
     std::optional<std::string> compareJson;
     std::optional<std::string> thresholdConfig;
     std::optional<double> maxRuntimeRegression;
@@ -159,6 +164,8 @@ int main(const int argc, char** argv) {
     compare->add_option("--grace-period", compareGrace, "Wait before sending SIGKILL");
     compare->add_flag("--no-counters", compareNoCounters, "Disable hardware-counter collection");
     compare->add_flag("--require-perf", compareRequirePerf, "Fail when perf events are unavailable");
+    compare->add_option(
+        "--profile-frequency", compareProfileFrequency, "Collect CPU samples at this frequency");
     compare->add_option("--json", compareJson, "Write the comparison result as JSON");
     compare->add_option("--config", thresholdConfig, "JSON threshold configuration");
     compare->add_option(
@@ -174,8 +181,8 @@ int main(const int argc, char** argv) {
 
     try {
         if (*run) {
-            const perflens::RunOptions options =
-                makeRunOptions(runTimeout, runGrace, runCpu, runNoCounters, runRequirePerf);
+            const perflens::RunOptions options = makeRunOptions(
+                runTimeout, runGrace, runCpu, runNoCounters, runRequirePerf, runProfileFrequency);
             const perflens::BenchmarkResult result =
                 perflens::runBenchmark(runCommand, {runRepeat, runWarmup, std::nullopt}, options);
             perflens::printBenchmarkReport(std::cout, result);
@@ -185,8 +192,12 @@ int main(const int argc, char** argv) {
             return 0;
         }
 
-        perflens::RunOptions options =
-            makeRunOptions(compareTimeout, compareGrace, compareCpu, compareNoCounters, compareRequirePerf);
+        perflens::RunOptions options = makeRunOptions(compareTimeout,
+                                                      compareGrace,
+                                                      compareCpu,
+                                                      compareNoCounters,
+                                                      compareRequirePerf,
+                                                      compareProfileFrequency);
         perflens::Thresholds thresholds =
             thresholdConfig ? perflens::loadThresholds(*thresholdConfig) : perflens::Thresholds{};
         overrideThreshold(thresholds.maxRuntimeRegressionPercent, maxRuntimeRegression, "runtime threshold");

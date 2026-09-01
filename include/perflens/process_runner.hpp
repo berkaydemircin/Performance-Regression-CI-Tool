@@ -23,6 +23,7 @@ struct RunOptions {
     std::optional<unsigned int> cpu;
     bool collectPerfCounters{true};
     bool requirePerf{};
+    std::uint64_t samplingFrequency{};
     bool collectApplicationMetrics{true};
     std::vector<std::pair<std::string, std::string>> environment;
 };

@@ -40,9 +40,11 @@ add_library(perflens_core
     src/analysis/statistics.cpp
     src/model.cpp
     src/perf/perf_counter.cpp
+    src/perf/perf_sampler.cpp
     src/process/process_runner.cpp
     src/process/workload_metrics.cpp
     src/report/terminal_report.cpp
+    src/symbols/symbolizer.cpp
 )
 
 target_include_directories(perflens_core PUBLIC include)
@@ -55,6 +57,8 @@ target_compile_options(perflens PRIVATE -Wall -Wextra -Wpedantic -Wconversion -W
 
 install(TARGETS perflens RUNTIME DESTINATION bin)
 
+add_executable(cpu_hotspot examples/cpu_hotspot.cpp)
+target_compile_options(cpu_hotspot PRIVATE -O2 -g -Wall -Wextra -Wpedantic)
 add_executable(cpu_work examples/cpu_work.cpp)
 target_compile_options(cpu_work PRIVATE -O2 -g -Wall -Wextra -Wpedantic)
 add_executable(lock_contention examples/lock_contention.cpp)
@@ -77,6 +81,7 @@ if(BUILD_TESTING)
         tests/model_test.cpp
         tests/perf_test.cpp
         tests/process_runner_test.cpp
+        tests/symbolizer_test.cpp
         tests/workload_metrics_test.cpp
     )
     target_link_libraries(perflens_tests PRIVATE perflens_core Catch2::Catch2WithMain)
