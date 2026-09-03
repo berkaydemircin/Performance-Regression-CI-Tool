@@ -1,5 +1,6 @@
 #include "perflens/perf_sampler.hpp"
 
+#include <algorithm>
 #include <atomic>
 #include <cerrno>
 #include <cstddef>
@@ -94,7 +95,9 @@ PerfSampler::PerfSampler(const pid_t target, const std::uint64_t frequency, cons
     attributes.size = sizeof(attributes);
     attributes.config = PERF_COUNT_HW_CPU_CYCLES;
     attributes.disabled = 1U;
-    attributes.inherit = 1U;
+    // this sampler covers the targets main thread only
+    attributes.inherit = 0U;
+    attributes.exclude_kernel = 1U;
     attributes.exclude_hv = 1U;
     attributes.freq = 1U;
     attributes.sample_freq = frequency;

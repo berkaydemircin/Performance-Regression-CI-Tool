@@ -59,7 +59,8 @@ std::vector<std::string> shellCommand(const std::string& command) {
     if (command.empty()) {
         throw std::invalid_argument("command must not be empty");
     }
-    return {"/bin/sh", "-c", command};
+    // keep the measured PID on the executable
+    return {"/bin/sh", "-c", "exec " + command};
 }
 
 template <typename T> void writeJson(const std::string& path, const T& result) {

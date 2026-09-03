@@ -5,6 +5,7 @@
 #include <cerrno>
 #include <cstdint>
 #include <cstring>
+#include <elf.h>
 #include <fcntl.h>
 #include <filesystem>
 #include <fstream>
@@ -43,6 +44,29 @@ std::string stripDeletedSuffix(std::string path) {
     return path;
 }
 
+std::optional<std::uint64_t> elfAddress(const std::string& path, const std::uint64_t offset) {
+    std::ifstream input{path, std::ios::binary};
+    Elf64_Ehdr header{};
+    if (!input.read(reinterpret_cast<char*>(&header), sizeof(header)) ||
+        std::memcmp(header.e_ident, ELFMAG, SELFMAG) != 0 || header.e_ident[EI_CLASS] != ELFCLASS64 ||
+        header.e_ident[EI_DATA] != ELFDATA2LSB || header.e_phentsize != sizeof(Elf64_Phdr)) {
+        return std::nullopt;
+    }
+    input.seekg(static_cast<std::streamoff>(header.e_phoff));
+    for (std::uint16_t index = 0; index < header.e_phnum; ++index) {
+        Elf64_Phdr segment{};
+        if (!input.read(reinterpret_cast<char*>(&segment), sizeof(segment))) {
+            return std::nullopt;
+        }
+        if (segment.p_type == PT_LOAD && offset >= segment.p_offset &&
+            offset - segment.p_offset < segment.p_filesz) {
+            // addr2line expects an ELF virtual address, not a file offset.
+            return segment.p_vaddr + offset - segment.p_offset;
+        }
+    }
+    return std::nullopt;
+}
+
 std::optional<AddressReference> resolveAddress(const std::uint64_t instructionPointer,
                                                const std::vector<MemoryMapping>& mappings) {
     const auto iterator =
@@ -53,8 +77,9 @@ std::optional<AddressReference> resolveAddress(const std::uint64_t instructionPo
     if (iterator == mappings.end()) {
         return std::nullopt;
     }
-    return AddressReference{stripDeletedSuffix(iterator->path),
-                            instructionPointer - iterator->start + iterator->fileOffset};
+    const std::string path = stripDeletedSuffix(iterator->path);
+    const auto address = elfAddress(path, instructionPointer - iterator->start + iterator->fileOffset);
+    return address ? std::optional<AddressReference>{{path, *address}} : std::nullopt;
 }
 
 std::vector<std::string> runAddr2line(const std::string& module,
