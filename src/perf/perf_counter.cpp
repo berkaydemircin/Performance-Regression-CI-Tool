@@ -56,6 +56,9 @@ void closeAll(std::vector<int>& descriptors) {
 
 struct PerfCounterCollector::Impl {
     std::vector<int> descriptors;
+    ~Impl() {
+        closeAll(descriptors);
+    }
 };
 
 std::uint64_t
@@ -92,11 +95,7 @@ PerfCounterCollector::PerfCounterCollector(const pid_t target) : impl_(std::make
     }
 }
 
-PerfCounterCollector::~PerfCounterCollector() {
-    if (impl_) {
-        closeAll(impl_->descriptors);
-    }
-}
+PerfCounterCollector::~PerfCounterCollector() = default;
 
 PerfCounterCollector::PerfCounterCollector(PerfCounterCollector&&) noexcept = default;
 PerfCounterCollector& PerfCounterCollector::operator=(PerfCounterCollector&&) noexcept = default;

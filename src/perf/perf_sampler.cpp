@@ -40,6 +40,14 @@ struct PerfSampler::Impl {
     std::size_t dataSize{};
     std::vector<CpuSample> samples;
     std::uint64_t lost{};
+    ~Impl() {
+        if (mapping != MAP_FAILED) {
+            munmap(mapping, mappingSize);
+        }
+        if (descriptor != -1) {
+            close(descriptor);
+        }
+    }
 };
 
 void copyRingBytes(const std::span<const std::byte> ring,
@@ -126,17 +134,7 @@ PerfSampler::PerfSampler(const pid_t target, const std::uint64_t frequency, cons
     }
 }
 
-PerfSampler::~PerfSampler() {
-    if (!impl_) {
-        return;
-    }
-    if (impl_->mapping != MAP_FAILED) {
-        munmap(impl_->mapping, impl_->mappingSize);
-    }
-    if (impl_->descriptor != -1) {
-        close(impl_->descriptor);
-    }
-}
+PerfSampler::~PerfSampler() = default;
 
 PerfSampler::PerfSampler(PerfSampler&&) noexcept = default;
 PerfSampler& PerfSampler::operator=(PerfSampler&&) noexcept = default;
