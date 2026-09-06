@@ -63,6 +63,23 @@ std::vector<std::string> shellCommand(const std::string& command) {
     return {"/bin/sh", "-c", "exec " + command};
 }
 
+perflens::RunOptions::TcpEndpoint parseEndpoint(const std::string& value) {
+    const std::size_t separator = value.rfind(':');
+    if (separator == std::string::npos || separator == 0 || separator + 1 == value.size()) {
+        throw std::invalid_argument("TCP readiness must use HOST:PORT");
+    }
+    std::string host = value.substr(0, separator);
+    if (host.size() >= 2 && host.front() == '[' && host.back() == ']') {
+        host = host.substr(1, host.size() - 2);
+    }
+    std::size_t parsed = 0;
+    const unsigned long port = std::stoul(value.substr(separator + 1), &parsed);
+    if (parsed != value.size() - separator - 1 || port == 0 || port > 65535) {
+        throw std::invalid_argument("TCP readiness port must be between 1 and 65535");
+    }
+    return {std::move(host), static_cast<std::uint16_t>(port)};
+}
+
 template <typename T> void writeJson(const std::string& path, const T& result) {
     std::ofstream output{path};
     if (!output) {
@@ -136,6 +153,7 @@ int main(const int argc, char** argv) {
 
     std::string baselineCommand;
     std::string candidateCommand;
+    std::optional<std::string> workloadCommand;
     std::size_t compareRepeat = 8;
     std::size_t compareWarmup = 2;
     std::optional<std::uint64_t> compareSeed;
@@ -146,6 +164,10 @@ int main(const int argc, char** argv) {
     bool compareRequirePerf = false;
     std::uint64_t compareProfileFrequency = 0;
     std::optional<std::string> compareJson;
+    std::string startupDelay = "0ms";
+    std::optional<std::string> readyTcp;
+    std::string readyTimeout = "5s";
+    std::string shutdownGrace = "500ms";
     std::optional<std::string> thresholdConfig;
     std::optional<double> maxRuntimeRegression;
     std::optional<double> maxP99Regression;
@@ -156,6 +178,7 @@ int main(const int argc, char** argv) {
     CLI::App* compare = app.add_subcommand("compare", "Run a balanced baseline and candidate comparison");
     compare->add_option("--baseline", baselineCommand, "Baseline command line")->required();
     compare->add_option("--candidate", candidateCommand, "Candidate command line")->required();
+    compare->add_option("--workload", workloadCommand, "Workload command for long-running services");
     compare->add_option("--repeat", compareRepeat, "Measured executions per variant")
         ->check(CLI::PositiveNumber);
     compare->add_option("--warmup", compareWarmup, "Discarded executions per variant");
@@ -168,6 +191,11 @@ int main(const int argc, char** argv) {
     compare->add_option(
         "--profile-frequency", compareProfileFrequency, "Collect CPU samples at this frequency");
     compare->add_option("--json", compareJson, "Write the comparison result as JSON");
+    compare->add_option("--startup-delay", startupDelay, "Fixed delay before a service workload");
+    compare->add_option("--ready-tcp", readyTcp, "Wait for HOST:PORT before a service workload");
+    compare->add_option("--ready-timeout", readyTimeout, "Maximum service readiness wait");
+    compare->add_option(
+        "--shutdown-grace", shutdownGrace, "Wait before killing a service after its workload");
     compare->add_option("--config", thresholdConfig, "JSON threshold configuration");
     compare->add_option(
         "--max-runtime-regression", maxRuntimeRegression, "Maximum runtime increase in percent");
@@ -199,6 +227,23 @@ int main(const int argc, char** argv) {
                                                       compareNoCounters,
                                                       compareRequirePerf,
                                                       compareProfileFrequency);
+        if (workloadCommand) {
+            perflens::RunOptions::ServiceLifecycle service;
+            service.workloadCommand = shellCommand(*workloadCommand);
+            service.startupDelay =
+                std::chrono::duration_cast<std::chrono::milliseconds>(parseDuration(startupDelay, true));
+            if (readyTcp) {
+                service.readyTcp = parseEndpoint(*readyTcp);
+            }
+            service.readyTimeout =
+                std::chrono::duration_cast<std::chrono::milliseconds>(parseDuration(readyTimeout));
+            service.shutdownGrace =
+                std::chrono::duration_cast<std::chrono::milliseconds>(parseDuration(shutdownGrace, true));
+            options.service = std::move(service);
+        } else if (readyTcp || startupDelay != "0ms") {
+            throw std::invalid_argument("service readiness options require --workload");
+        }
+
         perflens::Thresholds thresholds =
             thresholdConfig ? perflens::loadThresholds(*thresholdConfig) : perflens::Thresholds{};
         overrideThreshold(thresholds.maxRuntimeRegressionPercent, maxRuntimeRegression, "runtime threshold");

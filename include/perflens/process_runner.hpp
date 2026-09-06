@@ -26,6 +26,18 @@ struct RunOptions {
     std::uint64_t samplingFrequency{};
     bool collectApplicationMetrics{true};
     std::vector<std::pair<std::string, std::string>> environment;
+    struct TcpEndpoint {
+        std::string host;
+        std::uint16_t port{};
+    };
+    struct ServiceLifecycle {
+        std::vector<std::string> workloadCommand;
+        std::chrono::milliseconds startupDelay{};
+        std::optional<TcpEndpoint> readyTcp;
+        std::chrono::milliseconds readyTimeout{5000};
+        std::chrono::milliseconds shutdownGrace{500};
+    };
+    std::optional<ServiceLifecycle> service;
 };
 
 struct ProcessOutcome {

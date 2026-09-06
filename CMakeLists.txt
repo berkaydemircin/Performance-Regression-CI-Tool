@@ -61,6 +61,10 @@ add_executable(cpu_hotspot examples/cpu_hotspot.cpp)
 target_compile_options(cpu_hotspot PRIVATE -O2 -g -Wall -Wextra -Wpedantic)
 add_executable(cpu_work examples/cpu_work.cpp)
 target_compile_options(cpu_work PRIVATE -O2 -g -Wall -Wextra -Wpedantic)
+add_executable(example_server examples/example_server.cpp)
+target_compile_options(example_server PRIVATE -O2 -g -Wall -Wextra -Wpedantic)
+add_executable(example_workload examples/example_workload.cpp)
+target_compile_options(example_workload PRIVATE -O2 -g -Wall -Wextra -Wpedantic)
 add_executable(lock_contention examples/lock_contention.cpp)
 target_compile_options(lock_contention PRIVATE -O2 -g -Wall -Wextra -Wpedantic)
 target_link_libraries(lock_contention PRIVATE Threads::Threads)
@@ -81,6 +85,7 @@ if(BUILD_TESTING)
         tests/model_test.cpp
         tests/perf_test.cpp
         tests/process_runner_test.cpp
+        tests/service_lifecycle_test.cpp
         tests/symbolizer_test.cpp
         tests/workload_metrics_test.cpp
     )

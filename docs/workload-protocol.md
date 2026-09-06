@@ -1,6 +1,6 @@
 # Workload metrics
 
-PerfLens sets `PERFLENS_METRICS_FILE` for each run. Write your results to that path before the program exits.
+PerfLens sets `PERFLENS_METRICS_FILE` for each run. Write your results to that path before the program exits. For services, the workload client writes the file.
 
 ```json
 {

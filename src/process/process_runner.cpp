@@ -360,6 +360,150 @@ std::string currentExecutable(const pid_t process) {
     return count <= 0 ? std::string{} : std::string{path.data(), static_cast<std::size_t>(count)};
 }
 
+struct ProcSnapshot {
+    std::uint64_t userTicks{};
+    std::uint64_t systemTicks{};
+    std::uint64_t minorFaults{};
+    std::uint64_t majorFaults{};
+    std::uint64_t voluntaryContextSwitches{};
+    std::uint64_t involuntaryContextSwitches{};
+};
+
+std::optional<ProcSnapshot> readProcSnapshot(const pid_t process) {
+    std::ifstream statInput{"/proc/" + std::to_string(process) + "/stat"};
+    std::string statLine;
+    if (!std::getline(statInput, statLine)) {
+        return std::nullopt;
+    }
+    const std::size_t commandEnd = statLine.rfind(')');
+    if (commandEnd == std::string::npos || commandEnd + 2 >= statLine.size()) {
+        return std::nullopt;
+    }
+    std::istringstream fields{statLine.substr(commandEnd + 2)};
+    std::vector<std::string> values;
+    std::string value;
+    while (fields >> value) {
+        values.push_back(value);
+    }
+    if (values.size() <= 12) {
+        return std::nullopt;
+    }
+
+    ProcSnapshot snapshot;
+    snapshot.minorFaults = std::stoull(values[7]);
+    snapshot.majorFaults = std::stoull(values[9]);
+    snapshot.userTicks = std::stoull(values[11]);
+    snapshot.systemTicks = std::stoull(values[12]);
+
+    std::ifstream statusInput{"/proc/" + std::to_string(process) + "/status"};
+    std::string line;
+    while (std::getline(statusInput, line)) {
+        if (line.starts_with("voluntary_ctxt_switches:")) {
+            snapshot.voluntaryContextSwitches = std::stoull(line.substr(line.find(':') + 1));
+        } else if (line.starts_with("nonvoluntary_ctxt_switches:")) {
+            snapshot.involuntaryContextSwitches = std::stoull(line.substr(line.find(':') + 1));
+        }
+    }
+    return snapshot;
+}
+
+std::chrono::nanoseconds ticksToNanoseconds(const std::uint64_t ticks) {
+    const long ticksPerSecond = sysconf(_SC_CLK_TCK);
+    if (ticksPerSecond <= 0) {
+        return std::chrono::nanoseconds{};
+    }
+    const long double nanoseconds =
+        static_cast<long double>(ticks) * 1'000'000'000.0L / static_cast<long double>(ticksPerSecond);
+    return std::chrono::nanoseconds{static_cast<std::int64_t>(nanoseconds)};
+}
+
+std::uint64_t difference(const std::uint64_t end, const std::uint64_t start) {
+    return end >= start ? end - start : 0;
+}
+
+[[noreturn]] void executeWorkload(const std::vector<std::string>& command,
+                                  const std::vector<std::pair<std::string, std::string>>& environment,
+                                  const std::string& metricsPath) {
+    setpgid(0, 0);
+    restoreChildSignals();
+    for (const auto& [name, value] : environment) {
+        if (setenv(name.c_str(), value.c_str(), 1) == -1) {
+            _exit(126);
+        }
+    }
+    if (!metricsPath.empty() && setenv("PERFLENS_METRICS_FILE", metricsPath.c_str(), 1) == -1) {
+        _exit(126);
+    }
+
+    std::vector<char*> arguments;
+    arguments.reserve(command.size() + 1);
+    for (const std::string& value : command) {
+        arguments.push_back(const_cast<char*>(value.c_str()));
+    }
+    arguments.push_back(nullptr);
+    execvp(arguments.front(), arguments.data());
+    _exit(127);
+}
+
+pid_t startWorkload(const std::vector<std::string>& command,
+                    const std::vector<std::pair<std::string, std::string>>& environment,
+                    const std::string& metricsPath) {
+    const pid_t child = fork();
+    if (child == -1) {
+        throw std::system_error(errno, std::generic_category(), "fork workload");
+    }
+    if (child == 0) {
+        executeWorkload(command, environment, metricsPath);
+    }
+    if (setpgid(child, child) == -1 && errno != EACCES && errno != ESRCH) {
+        const int groupError = errno;
+        kill(child, SIGKILL);
+        waitpid(child, nullptr, 0);
+        throw std::system_error(groupError, std::generic_category(), "setpgid workload");
+    }
+    return child;
+}
+
+bool tcpReady(const RunOptions::TcpEndpoint& endpoint) {
+    addrinfo hints{};
+    hints.ai_family = AF_UNSPEC;
+    hints.ai_socktype = SOCK_STREAM;
+    addrinfo* addresses = nullptr;
+    const std::string port = std::to_string(endpoint.port);
+    const int lookup = getaddrinfo(endpoint.host.c_str(), port.c_str(), &hints, &addresses);
+    if (lookup != 0) {
+        return false;
+    }
+
+    bool ready = false;
+    for (addrinfo* address = addresses; address != nullptr && !ready; address = address->ai_next) {
+        const int descriptor =
+            socket(address->ai_family, address->ai_socktype | SOCK_CLOEXEC, address->ai_protocol);
+        if (descriptor == -1) {
+            continue;
+        }
+        const int flags = fcntl(descriptor, F_GETFL, 0);
+        if (flags != -1) {
+            fcntl(descriptor, F_SETFL, flags | O_NONBLOCK);
+        }
+        const int result = connect(descriptor, address->ai_addr, address->ai_addrlen);
+        if (result == 0) {
+            ready = true;
+        } else if (errno == EINPROGRESS) {
+            pollfd event{descriptor, POLLOUT, 0};
+            if (poll(&event, 1, 5) > 0) {
+                int socketError = 0;
+                socklen_t length = sizeof(socketError);
+                ready = getsockopt(descriptor, SOL_SOCKET, SO_ERROR, &socketError, &length) == 0 &&
+                        socketError == 0;
+            }
+        }
+        close(descriptor);
+    }
+    freeaddrinfo(addresses);
+    return ready;
+}
+
 }
 
 bool ProcessOutcome::succeeded() const noexcept {
@@ -376,6 +520,17 @@ ProcessOutcome ProcessRunner::run(const std::vector<std::string>& command, const
     if (options.terminationGrace < std::chrono::milliseconds::zero()) {
         throw std::invalid_argument("termination grace period must not be negative");
     }
+    if (options.service) {
+        if (options.service->workloadCommand.empty()) {
+            throw std::invalid_argument("service workload command must not be empty");
+        }
+        if (options.service->readyTimeout <= std::chrono::milliseconds::zero()) {
+            throw std::invalid_argument("service readiness timeout must be greater than zero");
+        }
+        if (options.service->shutdownGrace < std::chrono::milliseconds::zero()) {
+            throw std::invalid_argument("service shutdown grace period must not be negative");
+        }
+    }
 
     auto startPipe = createPipe();
     auto errorPipe = createPipe();
@@ -389,7 +544,7 @@ ProcessOutcome ProcessRunner::run(const std::vector<std::string>& command, const
     if (child == 0) {
         executeChild(command,
                      options,
-                     metricsFile.path(),
+                     options.service ? std::string{} : metricsFile.path(),
                      startPipe[0].get(),
                      startPipe[1].get(),
                      errorPipe[0].get(),
@@ -469,7 +624,9 @@ ProcessOutcome ProcessRunner::run(const std::vector<std::string>& command, const
         }
         collectorsStopped = true;
     };
-    startCollectors();
+    if (!options.service) {
+        startCollectors();
+    }
 
     const auto startedAt = std::chrono::steady_clock::now();
     const char release = 1;
@@ -497,6 +654,16 @@ ProcessOutcome ProcessRunner::run(const std::vector<std::string>& command, const
     auto nextMapCapture = startedAt;
     std::vector<MemoryMapping> mappings;
     const std::string ownExecutable = currentExecutable(getpid());
+    std::unique_ptr<ChildGuard> workloadGuard;
+    pid_t workload = -1;
+    bool workloadCompleted = false;
+    bool managedStop = false;
+    std::string lifecycleFailure;
+    auto measurementStartedAt = startedAt;
+    auto measurementFinishedAt = std::chrono::steady_clock::time_point{};
+    std::optional<ProcSnapshot> measurementStartSnapshot;
+    std::optional<ProcSnapshot> measurementEndSnapshot;
+
     while (true) {
         const pid_t waitResult = wait4(child, &status, WNOHANG, &usage);
         if (waitResult == child) {
@@ -507,6 +674,57 @@ ProcessOutcome ProcessRunner::run(const std::vector<std::string>& command, const
         }
 
         const auto now = std::chrono::steady_clock::now();
+        if (options.service && workload == -1 && !workloadCompleted && lifecycleFailure.empty() &&
+            !stopping) {
+            const bool delayElapsed = now - startedAt >= options.service->startupDelay;
+            const bool ready =
+                delayElapsed && (!options.service->readyTcp || tcpReady(*options.service->readyTcp));
+            if (ready) {
+                startCollectors();
+                measurementStartedAt = now;
+                measurementStartSnapshot = readProcSnapshot(child);
+                workload =
+                    startWorkload(options.service->workloadCommand, options.environment, metricsFile.path());
+                workloadGuard = std::make_unique<ChildGuard>(workload);
+            } else if (now - startedAt >= options.service->readyTimeout) {
+                lifecycleFailure = "service readiness timed out";
+                stopping = true;
+                signalProcessGroup(child, SIGTERM);
+                graceDeadline = now + options.service->shutdownGrace;
+            }
+        }
+
+        if (workload != -1) {
+            int workloadStatus = 0;
+            const pid_t workloadWait = waitpid(workload, &workloadStatus, WNOHANG);
+            if (workloadWait == workload) {
+                workloadGuard->release();
+                workloadGuard.reset();
+                workload = -1;
+                measurementFinishedAt = now;
+                measurementEndSnapshot = readProcSnapshot(child);
+                stopCollectors();
+                workloadCompleted = WIFEXITED(workloadStatus) && WEXITSTATUS(workloadStatus) == 0;
+                if (!workloadCompleted) {
+                    if (WIFEXITED(workloadStatus)) {
+                        lifecycleFailure =
+                            "workload exited with status " + std::to_string(WEXITSTATUS(workloadStatus));
+                    } else if (WIFSIGNALED(workloadStatus)) {
+                        lifecycleFailure =
+                            "workload terminated by signal " + std::to_string(WTERMSIG(workloadStatus));
+                    } else {
+                        lifecycleFailure = "workload ended unexpectedly";
+                    }
+                } else {
+                    managedStop = true;
+                }
+                stopping = true;
+                signalProcessGroup(child, SIGTERM);
+                graceDeadline = now + options.service->shutdownGrace;
+            } else if (workloadWait == -1 && errno != EINTR) {
+                throw std::system_error(errno, std::generic_category(), "waitpid workload");
+            }
+        }
 
         if (sampler && collectorsStarted) {
             sampler->drain();
@@ -522,17 +740,23 @@ ProcessOutcome ProcessRunner::run(const std::vector<std::string>& command, const
             interrupted = true;
             stopping = true;
             signalProcessGroup(child, static_cast<int>(receivedSignal));
-
+            if (workload != -1) {
+                signalProcessGroup(workload, static_cast<int>(receivedSignal));
+            }
             graceDeadline = now + options.terminationGrace;
         } else if (!stopping && options.timeout && now - startedAt >= *options.timeout) {
             timedOut = true;
             stopping = true;
             signalProcessGroup(child, SIGTERM);
-
+            if (workload != -1) {
+                signalProcessGroup(workload, SIGTERM);
+            }
             graceDeadline = now + options.terminationGrace;
         } else if (stopping && !sentKill && now >= graceDeadline) {
             signalProcessGroup(child, SIGKILL);
-
+            if (workload != -1) {
+                signalProcessGroup(workload, SIGKILL);
+            }
             sentKill = true;
         }
         if (childExit.get() != -1) {
@@ -544,16 +768,47 @@ ProcessOutcome ProcessRunner::run(const std::vector<std::string>& command, const
     }
 
     const auto finishedAt = std::chrono::steady_clock::now();
-
+    if (workloadGuard) {
+        if (lifecycleFailure.empty() && !interrupted && !timedOut) {
+            lifecycleFailure = "service exited before the workload completed";
+        }
+        workloadGuard.reset();
+        workload = -1;
+    }
+    if (options.service && !workloadCompleted && lifecycleFailure.empty() && !interrupted && !timedOut) {
+        lifecycleFailure = "service exited before the workload started";
+    }
     stopCollectors();
     childGuard.release();
     const std::optional<ChildError> childError = readChildError(errorPipe[0].get());
     if (childError) {
         throwChildError(*childError, command.front());
     }
+    if (!lifecycleFailure.empty()) {
+        throw std::runtime_error(lifecycleFailure);
+    }
 
     ProcessOutcome outcome;
-    outcome.result.process = makeMetrics(finishedAt - startedAt, usage);
+    if (measurementFinishedAt == std::chrono::steady_clock::time_point{}) {
+        measurementFinishedAt = finishedAt;
+    }
+    outcome.result.process = makeMetrics(measurementFinishedAt - measurementStartedAt, usage);
+    if (measurementStartSnapshot && measurementEndSnapshot) {
+        outcome.result.process.userTime = ticksToNanoseconds(
+            difference(measurementEndSnapshot->userTicks, measurementStartSnapshot->userTicks));
+        outcome.result.process.systemTime = ticksToNanoseconds(
+            difference(measurementEndSnapshot->systemTicks, measurementStartSnapshot->systemTicks));
+        outcome.result.process.minorFaults =
+            difference(measurementEndSnapshot->minorFaults, measurementStartSnapshot->minorFaults);
+        outcome.result.process.majorFaults =
+            difference(measurementEndSnapshot->majorFaults, measurementStartSnapshot->majorFaults);
+        outcome.result.process.voluntaryContextSwitches =
+            difference(measurementEndSnapshot->voluntaryContextSwitches,
+                       measurementStartSnapshot->voluntaryContextSwitches);
+        outcome.result.process.involuntaryContextSwitches =
+            difference(measurementEndSnapshot->involuntaryContextSwitches,
+                       measurementStartSnapshot->involuntaryContextSwitches);
+    }
     outcome.result.counters.unavailableReason =
         options.collectPerfCounters ? counterFailure : "hardware counters disabled";
     outcome.result.cpuProfile.unavailableReason =
@@ -588,7 +843,10 @@ ProcessOutcome ProcessRunner::run(const std::vector<std::string>& command, const
         outcome.result.application = loadApplicationMetrics(metricsFile.path());
     }
 
-    if (interrupted) {
+    if (managedStop) {
+        outcome.reason = TerminationReason::exited;
+        outcome.exitCode = 0;
+    } else if (interrupted) {
         outcome.reason = TerminationReason::interrupted;
         outcome.signal = static_cast<int>(receivedSignal);
     } else if (timedOut) {
