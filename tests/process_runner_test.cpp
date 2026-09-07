@@ -109,3 +109,36 @@ TEST_CASE("multithreaded targets collect or explicitly report unavailable counte
         CHECK_FALSE(outcome.result.counters.unavailableReason.empty());
     }
 }
+
+TEST_CASE("descendants are stopped when their leader exits") {
+    char path[] = "/tmp/perflens-child-XXXXXX";
+    const int fd = mkstemp(path);
+    REQUIRE(fd != -1);
+    close(fd);
+    const std::string command = "sleep 30 & echo $! > " + std::string{path};
+    perflens::RunOptions options;
+    options.collectPerfCounters = false;
+    REQUIRE(perflens::ProcessRunner{}.run({"/bin/sh", "-c", command}, options).succeeded());
+    int descendant = 0;
+    std::ifstream{path} >> descendant;
+    unlink(path);
+    REQUIRE(descendant > 0);
+    bool running = true;
+    for (int attempt = 0; attempt < 100 && running; ++attempt) {
+        std::ifstream status{"/proc/" + std::to_string(descendant) + "/stat"};
+        std::string line;
+        if (!std::getline(status, line)) {
+            running = false;
+        } else {
+            const auto end = line.rfind(')');
+            running = end == std::string::npos || line[end + 2] != 'Z';
+        }
+        if (running) {
+            std::this_thread::sleep_for(2ms);
+        }
+    }
+    if (running) {
+        kill(descendant, SIGKILL);
+    }
+    CHECK_FALSE(running);
+}

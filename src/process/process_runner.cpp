@@ -132,6 +132,8 @@ class ChildGuard {
     ChildGuard(const ChildGuard&) = delete;
     ChildGuard& operator=(const ChildGuard&) = delete;
     void release() noexcept {
+        // the leader can exit while descendants are still running
+        kill(-child_, SIGKILL);
         child_ = -1;
     }
 
@@ -843,15 +845,15 @@ ProcessOutcome ProcessRunner::run(const std::vector<std::string>& command, const
         outcome.result.application = loadApplicationMetrics(metricsFile.path());
     }
 
-    if (managedStop) {
-        outcome.reason = TerminationReason::exited;
-        outcome.exitCode = 0;
-    } else if (interrupted) {
+    if (interrupted) {
         outcome.reason = TerminationReason::interrupted;
         outcome.signal = static_cast<int>(receivedSignal);
     } else if (timedOut) {
         outcome.reason = TerminationReason::timedOut;
         outcome.signal = WIFSIGNALED(status) ? WTERMSIG(status) : 0;
+    } else if (managedStop) {
+        outcome.reason = TerminationReason::exited;
+        outcome.exitCode = 0;
     } else if (WIFEXITED(status)) {
         outcome.reason = TerminationReason::exited;
         outcome.exitCode = WEXITSTATUS(status);
