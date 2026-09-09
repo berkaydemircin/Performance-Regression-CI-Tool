@@ -13,14 +13,14 @@ int main(const int argc, char** argv) {
     std::iota(values.begin(), values.end(), 1U);
     std::vector<std::uint32_t> order(count);
     std::iota(order.begin(), order.end(), 0U);
-    if (randomAccess) {
-        std::mt19937 generator{7};
-        std::shuffle(order.begin(), order.end(), generator);
-    }
+    std::mt19937 generator{7};
+    std::shuffle(order.begin(), order.end(), generator);
 
     std::uint64_t sum = 0;
-    for (const std::uint32_t index : order) {
-        sum += values[index];
+    for (int pass = 0; pass < 16; ++pass) {
+        for (std::size_t index = 0; index < count; ++index) {
+            sum += values[randomAccess ? order[index] : index];
+        }
     }
     std::cout << sum << '\n';
 }
