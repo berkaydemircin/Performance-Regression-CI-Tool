@@ -57,6 +57,10 @@ target_compile_options(perflens PRIVATE -Wall -Wextra -Wpedantic -Wconversion -W
 
 install(TARGETS perflens RUNTIME DESTINATION bin)
 
+add_executable(allocation examples/allocation.cpp)
+target_compile_options(allocation PRIVATE -O2 -g -Wall -Wextra -Wpedantic)
+add_executable(branch_behavior examples/branch_behavior.cpp)
+target_compile_options(branch_behavior PRIVATE -O2 -g -Wall -Wextra -Wpedantic)
 add_executable(cpu_hotspot examples/cpu_hotspot.cpp)
 target_compile_options(cpu_hotspot PRIVATE -O2 -g -Wall -Wextra -Wpedantic)
 add_executable(cpu_work examples/cpu_work.cpp)
@@ -67,6 +71,8 @@ add_executable(example_workload examples/example_workload.cpp)
 target_compile_options(example_workload PRIVATE -O2 -g -Wall -Wextra -Wpedantic)
 add_executable(lock_contention examples/lock_contention.cpp)
 target_compile_options(lock_contention PRIVATE -O2 -g -Wall -Wextra -Wpedantic)
+add_executable(memory_access examples/memory_access.cpp)
+target_compile_options(memory_access PRIVATE -O2 -g -Wall -Wextra -Wpedantic)
 target_link_libraries(lock_contention PRIVATE Threads::Threads)
 
 include(CTest)
