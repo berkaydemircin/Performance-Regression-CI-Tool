@@ -1,0 +1,41 @@
+name: Build and performance smoke checks
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "CMakeLists.txt"
+      - "include/**"
+      - "src/**"
+      - "examples/**"
+      - "tests/**"
+
+jobs:
+  compare:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+          cmake --build build -j2
+          ctest --test-dir build --output-on-failure
+          python3 tests/cli_smoke.py --build build
+
+      - name: Comparison smoke check
+        run: |
+          ./build/perflens compare \
+            --baseline "./build/cpu_hotspot baseline" \
+            --candidate "./build/cpu_hotspot baseline" \
+            --no-counters \
+            --warmup 2 \
+            --repeat 8 \
+            --max-runtime-regression 50 \
+            --json results.json
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: perflens-results
+          path: results.json

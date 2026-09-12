@@ -1,0 +1,9 @@
+{
+  "thresholds": {
+    "runtime_pct": 10,
+    "p99_latency_pct": 10,
+    "throughput_pct": 5,
+    "cpu_time_pct": 10,
+    "max_rss_pct": 10
+  }
+}
