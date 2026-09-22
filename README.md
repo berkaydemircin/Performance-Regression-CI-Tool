@@ -68,4 +68,26 @@ python3 benchmarks/measure_overhead.py \
 
 This reports total command time and target runtime separately. Results from unavailable collectors are left as null. Run on a quiet machine and save the CPU, compiler and build settings with the results.
 
-I will but benchmark results here once I have the numbers.
+### Results
+
+Measured on Ubuntu 24.04 with an Intel Core i5-12500H using a Release build. Standalone results below use 30 measured runs per side and CPU pinning. Reported changes are the median across seeds 7, 19 and 41.
+
+| Workload | Runtime change | Supporting performance counter |
+| --- | ---: | --- |
+| CPU work | **+243.0%** | CPU cycles **+245.3%** |
+| Memory access | **+261.9%** | Cache misses **+516.2%** |
+| Branch behavior | **+88.7%** | Branch misses **268 K -> 15.27 M** |
+| Allocation | **+1166.7%** | Instructions **+1300.9%** |
+| Lock contention | **+874.7%** | Voluntary context switches **4 -> 25.2 K** |
+
+The service benchmark also detected a throughput drop from **121.9 K/s to 32.7 K/s (-73.2%)**, while p95 latency increased from **8.45 us to 32.39 us (+283.2%)**.
+
+Identical CPU workloads differed by at most **0.034% in median runtime** across the three seeds. Individual run distributions had runtime coefficients of variation between **0.16% and 0.27%**.
+
+A 10% runtime budget correctly rejected the CPU regression with exit code `1` after measuring a **+243.3%** regression.
+
+#### Measurement overhead
+
+On the ~9 ms CPU microbenchmark, process measurement added **9.0%** end to end overhead and hw counters added **9.3%**. The measured target runtime with counters remained within about **1%** of process only measurement. CPU sampling is intentionally opt in and has substantially higher fixed overhead on short running workloads.
+
+Note that these are synthetic workloads intended to verify regression detection and diagnostics. They may not make general performance claims about the project.
