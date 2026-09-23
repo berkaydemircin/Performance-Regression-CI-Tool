@@ -5,6 +5,7 @@
 #include "perflens/symbolizer.hpp"
 #include "perflens/workload_metrics.hpp"
 
+#include <algorithm>
 #include <array>
 #include <cerrno>
 #include <chrono>
@@ -27,6 +28,7 @@
 #include <netdb.h>
 #include <poll.h>
 #include <sched.h>
+#include <spawn.h>
 #include <sys/resource.h>
 #include <sys/socket.h>
 #include <sys/syscall.h>
@@ -423,47 +425,117 @@ std::uint64_t difference(const std::uint64_t end, const std::uint64_t start) {
     return end >= start ? end - start : 0;
 }
 
-[[noreturn]] void executeWorkload(const std::vector<std::string>& command,
-                                  const std::vector<std::pair<std::string, std::string>>& environment,
-                                  const std::string& metricsPath) {
-    setpgid(0, 0);
-    restoreChildSignals();
-    for (const auto& [name, value] : environment) {
-        if (setenv(name.c_str(), value.c_str(), 1) == -1) {
-            _exit(126);
+pid_t startWorkload(const std::vector<std::string>& command,
+                    const std::vector<std::pair<std::string, std::string>>& environment,
+                    const std::string& metricsPath) {
+    // the sampler may be running, so do not allocate in a forked child
+    std::vector<std::string> values;
+    for (char** entry = environ; *entry != nullptr; ++entry) {
+        values.emplace_back(*entry);
+    }
+    const auto setValue = [&](const std::string& name, const std::string& value) {
+        if (name.empty() || name.find('=') != std::string::npos) {
+            throw std::invalid_argument("invalid workload environment name");
         }
+        const std::string prefix = name + '=';
+        std::erase_if(values, [&](const std::string& entry) { return entry.starts_with(prefix); });
+        values.push_back(prefix + value);
+    };
+    for (const auto& [name, value] : environment) {
+        setValue(name, value);
     }
-    if (!metricsPath.empty() && setenv("PERFLENS_METRICS_FILE", metricsPath.c_str(), 1) == -1) {
-        _exit(126);
+    if (!metricsPath.empty()) {
+        setValue("PERFLENS_METRICS_FILE", metricsPath);
     }
-
+    std::vector<char*> env;
+    for (auto& value : values) {
+        env.push_back(value.data());
+    }
+    env.push_back(nullptr);
     std::vector<char*> arguments;
-    arguments.reserve(command.size() + 1);
     for (const std::string& value : command) {
         arguments.push_back(const_cast<char*>(value.c_str()));
     }
     arguments.push_back(nullptr);
-    execvp(arguments.front(), arguments.data());
-    _exit(127);
+    const auto check = [](const int error) {
+        if (error != 0) {
+            throw std::system_error(error, std::generic_category(), "spawn workload");
+        }
+    };
+    posix_spawnattr_t attributes{};
+    check(posix_spawnattr_init(&attributes));
+    pid_t child = -1;
+    try {
+        sigset_t defaults{};
+        sigemptyset(&defaults);
+        sigaddset(&defaults, SIGINT);
+        sigaddset(&defaults, SIGTERM);
+        sigaddset(&defaults, SIGPIPE);
+        check(posix_spawnattr_setsigdefault(&attributes, &defaults));
+        check(posix_spawnattr_setpgroup(&attributes, 0));
+        check(posix_spawnattr_setflags(&attributes, POSIX_SPAWN_SETPGROUP | POSIX_SPAWN_SETSIGDEF));
+        if (command.front().find('/') != std::string::npos) {
+            check(posix_spawn(&child, arguments.front(), nullptr, &attributes, arguments.data(), env.data()));
+        } else {
+            // use the workload's PATH, including overrides in RunOptions
+            std::string path = "/bin:/usr/bin";
+            for (const auto& value : values) {
+                if (value.starts_with("PATH=")) {
+                    path = value.substr(5);
+                }
+            }
+            int spawnError = ENOENT;
+            bool denied = false;
+            std::size_t begin = 0;
+            do {
+                const auto end = path.find(':', begin);
+                const auto directory = path.substr(begin, end == std::string::npos ? end : end - begin);
+                const auto executable =
+                    directory.empty() ? command.front() : directory + '/' + command.front();
+                spawnError = posix_spawn(
+                    &child, executable.c_str(), nullptr, &attributes, arguments.data(), env.data());
+                if (spawnError == 0) {
+                    break;
+                }
+                denied = denied || spawnError == EACCES;
+                if (spawnError != ENOENT && spawnError != ENOTDIR && spawnError != EACCES) {
+                    break;
+                }
+                if (end == std::string::npos) {
+                    spawnError = denied ? EACCES : ENOENT;
+                    break;
+                }
+                begin = end + 1;
+            } while (true);
+            check(spawnError);
+        }
+    } catch (...) {
+        posix_spawnattr_destroy(&attributes);
+        throw;
+    }
+    posix_spawnattr_destroy(&attributes);
+    return child;
 }
 
-pid_t startWorkload(const std::vector<std::string>& command,
-                    const std::vector<std::pair<std::string, std::string>>& environment,
-                    const std::string& metricsPath) {
-    const pid_t child = fork();
-    if (child == -1) {
-        throw std::system_error(errno, std::generic_category(), "fork workload");
+std::vector<int> samplingCpus(const std::optional<unsigned int> pinned) {
+    if (pinned) {
+        if (*pinned >= CPU_SETSIZE) {
+            throw std::invalid_argument("sampling CPU is outside the supported affinity mask");
+        }
+        return {static_cast<int>(*pinned)};
     }
-    if (child == 0) {
-        executeWorkload(command, environment, metricsPath);
+    cpu_set_t allowed;
+    CPU_ZERO(&allowed);
+    if (sched_getaffinity(0, sizeof(allowed), &allowed) == -1) {
+        throw std::system_error(errno, std::generic_category(), "sampling CPU affinity");
     }
-    if (setpgid(child, child) == -1 && errno != EACCES && errno != ESRCH) {
-        const int groupError = errno;
-        kill(child, SIGKILL);
-        waitpid(child, nullptr, 0);
-        throw std::system_error(groupError, std::generic_category(), "setpgid workload");
+    std::vector<int> cpus;
+    for (int cpu = 0; cpu < CPU_SETSIZE; ++cpu) {
+        if (CPU_ISSET(cpu, &allowed)) {
+            cpus.push_back(cpu);
+        }
     }
-    return child;
+    return cpus;
 }
 
 bool tcpReady(const RunOptions::TcpEndpoint& endpoint) {
@@ -578,7 +650,8 @@ ProcessOutcome ProcessRunner::run(const std::vector<std::string>& command, const
     std::string samplerFailure;
     if (options.samplingFrequency != 0) {
         try {
-            sampler = std::make_unique<PerfSampler>(child, options.samplingFrequency);
+            sampler =
+                std::make_unique<PerfSampler>(child, samplingCpus(options.cpu), options.samplingFrequency);
         } catch (const std::exception& error) {
             samplerFailure = error.what();
             if (options.requirePerf) {
@@ -594,7 +667,15 @@ ProcessOutcome ProcessRunner::run(const std::vector<std::string>& command, const
             counters->start();
         }
         if (sampler) {
-            sampler->start();
+            try {
+                sampler->start();
+            } catch (const std::exception& error) {
+                samplerFailure = error.what();
+                sampler.reset();
+                if (options.requirePerf) {
+                    throw;
+                }
+            }
         }
         collectorsStarted = true;
     };
@@ -729,7 +810,6 @@ ProcessOutcome ProcessRunner::run(const std::vector<std::string>& command, const
         }
 
         if (sampler && collectorsStarted) {
-            sampler->drain();
             if (now >= nextMapCapture && currentExecutable(child) != ownExecutable) {
                 const std::vector<MemoryMapping> currentMappings = readProcMaps(child);
                 if (!currentMappings.empty()) {

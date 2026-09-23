@@ -41,6 +41,7 @@ add_library(perflens_core
     src/model.cpp
     src/perf/perf_counter.cpp
     src/perf/perf_sampler.cpp
+    src/perf/sample_collector.cpp
     src/process/process_runner.cpp
     src/process/workload_metrics.cpp
     src/report/terminal_report.cpp
@@ -48,7 +49,7 @@ add_library(perflens_core
 )
 
 target_include_directories(perflens_core PUBLIC include)
-target_link_libraries(perflens_core PUBLIC nlohmann_json::nlohmann_json)
+target_link_libraries(perflens_core PUBLIC nlohmann_json::nlohmann_json Threads::Threads)
 target_compile_options(perflens_core PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wshadow)
 
 add_executable(perflens src/cli/main.cpp)
@@ -74,6 +75,9 @@ target_compile_options(lock_contention PRIVATE -O2 -g -Wall -Wextra -Wpedantic)
 add_executable(memory_access examples/memory_access.cpp)
 target_compile_options(memory_access PRIVATE -O2 -g -Wall -Wextra -Wpedantic)
 target_link_libraries(lock_contention PRIVATE Threads::Threads)
+add_executable(threaded_hotspot examples/threaded_hotspot.cpp)
+target_compile_options(threaded_hotspot PRIVATE -O2 -g -Wall -Wextra -Wpedantic)
+target_link_libraries(threaded_hotspot PRIVATE Threads::Threads)
 
 include(CTest)
 
@@ -90,6 +94,7 @@ if(BUILD_TESTING)
         tests/analysis_test.cpp
         tests/model_test.cpp
         tests/perf_test.cpp
+        tests/sampler_integration_test.cpp
         tests/process_runner_test.cpp
         tests/service_lifecycle_test.cpp
         tests/symbolizer_test.cpp
@@ -100,7 +105,27 @@ if(BUILD_TESTING)
 
     list(APPEND CMAKE_MODULE_PATH ${catch2_SOURCE_DIR}/extras)
     include(Catch)
-    catch_discover_tests(perflens_tests)
+    catch_discover_tests(perflens_tests PROPERTIES TIMEOUT 30)
+    add_dependencies(perflens_tests lock_contention example_server example_workload threaded_hotspot)
+
+    add_executable(perflens_collector_tests
+        tests/sample_collector_test.cpp
+        tests/sampler_resources_test.cpp
+        src/perf/perf_sampler.cpp
+        src/perf/sample_collector.cpp
+    )
+    target_include_directories(perflens_collector_tests PRIVATE include)
+    target_link_libraries(perflens_collector_tests PRIVATE Catch2::Catch2WithMain Threads::Threads)
+    target_compile_options(perflens_collector_tests PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wshadow)
+    target_link_options(perflens_collector_tests PRIVATE
+        -Wl,--wrap=syscall -Wl,--wrap=mmap -Wl,--wrap=munmap -Wl,--wrap=ioctl)
+    option(PERFLENS_COLLECTOR_TSAN "Run collector tests with ThreadSanitizer" OFF)
+    if(PERFLENS_COLLECTOR_TSAN)
+        target_compile_options(perflens_collector_tests PRIVATE -fsanitize=thread -fno-omit-frame-pointer -g)
+        target_link_options(perflens_collector_tests PRIVATE -fsanitize=thread)
+    endif()
+    catch_discover_tests(perflens_collector_tests TEST_PREFIX "collector: "
+        DISCOVERY_MODE PRE_TEST PROPERTIES TIMEOUT 15)
 endif()
 
 if(BUILD_TESTING)

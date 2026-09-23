@@ -26,6 +26,8 @@ def main():
     parser.add_argument("--seed", type=int, default=7)
     parser.add_argument("--cpu", type=int)
     parser.add_argument("--profile-frequency", type=int, default=0)
+    parser.add_argument("--skip-counters", action="store_true",
+                        help="compare raw, process and optional sampling modes without the counter group")
     parser.add_argument("command", nargs=argparse.REMAINDER)
     args = parser.parse_args()
     command = args.command[1:] if args.command and args.command[0] == "--" else args.command
@@ -35,6 +37,8 @@ def main():
         parser.error("CPU is outside the allowed affinity mask")
 
     modes = {"raw": [], "process": ["--no-counters"], "counters": []}
+    if args.skip_counters:
+        del modes["counters"]
     if args.profile_frequency:
         modes["sampling"] = ["--no-counters", "--profile-frequency", str(args.profile_frequency)]
     samples = {mode: [] for mode in modes}
@@ -61,6 +65,7 @@ def main():
                     sample["reason"] = diagnostic["unavailable_reason"]
                     if mode == "sampling":
                         sample["sample_count"] = sum(f["samples"] for f in diagnostic["functions"])
+                        sample["lost_samples"] = diagnostic["lost_samples"]
                         if sample["sample_count"] == 0:
                             sample["available"] = False
                             sample["reason"] = sample["reason"] or "no samples collected"
@@ -93,7 +98,9 @@ def main():
             target = describe([s["target_ns"] for s in values])
             results[mode]["target"] = target
             results[mode]["target_change_vs_process_pct"] = (target["median_ns"] / process_median - 1) * 100 if available else None
-    print(json.dumps({"seed": args.seed, "cpu": args.cpu, "command": command,
+    print(json.dumps({"seed": args.seed, "cpu": args.cpu,
+                      "allowed_cpus": sorted(os.sched_getaffinity(0)),
+                      "profile_frequency": args.profile_frequency, "command": command,
                       "order": order, "modes": results}, indent=2))
 
 if __name__ == "__main__":

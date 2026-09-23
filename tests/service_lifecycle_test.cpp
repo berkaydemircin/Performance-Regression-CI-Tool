@@ -55,3 +55,31 @@ TEST_CASE("a service that exits before readiness fails") {
 
     CHECK_THROWS_AS(perflens::ProcessRunner{}.run({"/bin/true"}, options), std::runtime_error);
 }
+
+TEST_CASE("spawned workloads keep environment overrides and metrics") {
+    perflens::RunOptions options;
+    options.collectPerfCounters = false;
+    options.timeout = 2s;
+    options.environment = {{"PERFLENS_SPAWN_TEST", "kept"}, {"PATH", "/missing:/bin:/usr/bin"}};
+    perflens::RunOptions::ServiceLifecycle service;
+    service.workloadCommand = {"sh",
+                               "-c",
+                               "test \"$PERFLENS_SPAWN_TEST\" = kept && "
+                               "printf '{\"operations\":1}' > \"$PERFLENS_METRICS_FILE\""};
+    options.service = service;
+    const auto result = perflens::ProcessRunner{}.run({"/bin/sleep", "5"}, options);
+    REQUIRE(result.succeeded());
+    REQUIRE(result.result.application);
+    CHECK(result.result.application->operations == 1);
+}
+
+TEST_CASE("spawned workloads use their own PATH") {
+    perflens::RunOptions options;
+    options.collectPerfCounters = false;
+    options.timeout = 2s;
+    options.environment = {{"PATH", "/definitely/missing"}};
+    perflens::RunOptions::ServiceLifecycle service;
+    service.workloadCommand = {"true"};
+    options.service = service;
+    CHECK_THROWS_AS(perflens::ProcessRunner{}.run({"/bin/sleep", "5"}, options), std::system_error);
+}

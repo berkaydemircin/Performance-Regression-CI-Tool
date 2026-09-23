@@ -29,7 +29,7 @@ void copyRingBytes(std::span<const std::byte> ring, std::uint64_t offset, std::s
 
 class PerfSampler {
   public:
-    PerfSampler(pid_t target, std::uint64_t frequency, std::size_t dataPages = 16);
+    PerfSampler(pid_t target, std::span<const int> cpus, std::uint64_t frequency, std::size_t dataPages = 16);
     ~PerfSampler();
 
     PerfSampler(const PerfSampler&) = delete;
@@ -39,9 +39,9 @@ class PerfSampler {
 
     void start();
     void stop();
-    void drain();
-    [[nodiscard]] const std::vector<CpuSample>& samples() const noexcept;
-    [[nodiscard]] std::uint64_t lostSamples() const noexcept;
+    // results are only available after stop has joined the collector
+    [[nodiscard]] const std::vector<CpuSample>& samples() const;
+    [[nodiscard]] std::uint64_t lostSamples() const;
 
   private:
     struct Impl;

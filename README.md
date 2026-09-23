@@ -40,7 +40,9 @@ The example above allows up to a 10% increase in median runtime. The exit code i
 
 You can also set `--max-p99-regression`, `--max-throughput-regression`, `--max-cpu-regression` and `--max-rss-regression`. These take percentages too. Throughput checks for a decrease, and the CPU limit uses time per operation. Latency, throughput and operation counts come from the [workload](docs/workload-protocol.md). A limit with missing data returns an error.
 
-Add `--cpu N` to pin the program or `--timeout 5s` to limit each run. Remove `--no-counters` for hardware counters and add `--profile-frequency 99` for sampling. Sampling currently covers the main thread only. Both need perf access on the host; `--require-perf` makes unavailable collection fail the run.
+Add `--cpu N` to pin the program or `--timeout 5s` to limit each run. Remove `--no-counters` for hardware counters and add `--profile-frequency 99` for CPU sampling. Sampling now covers the target's main thread and new worker threads. Both features need perf access on the host (as a sidenote this is very difficult/expensive to get from major cloud providers). `--require-perf` makes unavailable collection fail the run.
+
+Without `--cpu`, PerfLens opens a sampling buffer for every CPU it is allowed to use. More busy CPUs can mean more samples and more overhead. If sampling fails on any required CPU, the profile is reported as unavailable.
 
 ## Services
 
@@ -68,7 +70,24 @@ python3 benchmarks/measure_overhead.py \
 
 This reports total command time and target runtime separately. Results from unavailable collectors are left as null. Run on a quiet machine and save the CPU, compiler and build settings with the results.
 
+To check worker thread sampling, run:
+
+```bash
+(cd build && ./perflens_tests '[hardware]' --success)
+```
+
+The test checks for samples from multiple worker threads and their functions. If perf access is unavailable, it skips; a skip does not verify thread coverage. To measure sampling overhead on a machine with perf access:
+
+```bash
+python3 benchmarks/measure_overhead.py \
+    --perflens build/perflens --skip-counters --warmup 2 --repeat 20 \
+    --profile-frequency 99 \
+    -- ./build/threaded_hotspot 4 200000000 > threaded-overhead.json
+```
+
 ### Results
+
+IMPORTANT: These numbers were measured before worker thread sampling was added. They do not measure the new sampler, will be updated.
 
 Measured on Ubuntu 24.04 with an Intel Core i5-12500H using a Release build. Standalone results below use 30 measured runs per side and CPU pinning. Reported changes are the median across seeds 7, 19 and 41.
 
@@ -87,6 +106,8 @@ Identical CPU workloads differed by at most **0.034% in median runtime** across 
 A 10% runtime budget correctly rejected the CPU regression with exit code `1` after measuring a **+243.3%** regression.
 
 #### Measurement overhead
+
+IMPORTANT: These numbers were measured before worker thread sampling was added. The collector architecture was changed to these numbers are prone to change. They do not measure the new sampler, will be updated.
 
 On the ~9 ms CPU microbenchmark, process measurement added **9.0%** end to end overhead and hw counters added **9.3%**. The measured target runtime with counters remained within about **1%** of process only measurement. CPU sampling is intentionally opt in and has substantially higher fixed overhead on short running workloads.
 
